@@ -216,6 +216,63 @@ function testBindUser() {
   Logger.log('========================================');
 }
 
+/**
+ * 🔍 調試班表結構
+ *
+ * 使用方法：
+ * 1. 選擇 "debugScheduleStructure" 函數
+ * 2. 點擊「執行」
+ * 3. 查看執行日誌，了解班表的實際結構
+ */
+function debugScheduleStructure() {
+  Logger.log('========================================');
+  Logger.log('🔍 調試班表結構');
+  Logger.log('========================================');
+  Logger.log('');
+
+  try {
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_SCHEDULE);
+    const data = sheet.getDataRange().getValues();
+
+    Logger.log('總行數: ' + data.length);
+    Logger.log('');
+
+    // 顯示前 10 行的前 5 列
+    Logger.log('【前 10 行的數據】');
+    for (let row = 0; row < Math.min(10, data.length); row++) {
+      let rowData = '第 ' + (row + 1) + ' 行: ';
+      for (let col = 0; col < Math.min(5, data[row].length); col++) {
+        const cellValue = data[row][col];
+        rowData += '[' + col + ']="' + cellValue + '" ';
+      }
+      Logger.log(rowData);
+    }
+    Logger.log('');
+
+    // 顯示第二列（B列）的所有非空值
+    Logger.log('【第二列（B列）的所有非空值】');
+    for (let row = 0; row < Math.min(30, data.length); row++) {
+      if (data[row][1]) {  // 第二列（index 1）
+        Logger.log('第 ' + (row + 1) + ' 行, B列: "' + data[row][1] + '"');
+      }
+    }
+    Logger.log('');
+
+    // 測試當前的 getAllEmployees() 函數
+    Logger.log('【當前 getAllEmployees() 返回的結果】');
+    const employees = getAllEmployees();
+    Logger.log('員工數量: ' + employees.length);
+    Logger.log('員工列表: ' + JSON.stringify(employees));
+
+  } catch (error) {
+    Logger.log('❌ 調試失敗');
+    Logger.log('錯誤: ' + error.message);
+    Logger.log('錯誤堆疊: ' + error.stack);
+  }
+
+  Logger.log('========================================');
+}
+
 // ==================== LINE Webhook 入口 ====================
 
 /**
@@ -656,28 +713,38 @@ function getShiftForDate(name, date) {
   const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_SCHEDULE);
   const data = sheet.getDataRange().getValues();
 
-  // 第一行是標題，找到姓名對應的列
-  const headers = data[0];
-  let nameCol = -1;
-  for (let i = 0; i < headers.length; i++) {
-    if (headers[i] === name) {
-      nameCol = i;
+  if (data.length === 0) return '';
+
+  // 1. 從第一行找到日期對應的列
+  const dateStr = `${date.getMonth() + 1}/${date.getDate()}`;
+  const headers = data[0];  // 第一行是日期
+  let dateCol = -1;
+
+  for (let col = 2; col < headers.length; col++) {  // 從 C 列開始（index 2）
+    const cellValue = headers[col];
+    if (cellValue && cellValue.toString().includes(dateStr)) {
+      dateCol = col;
       break;
     }
   }
 
-  if (nameCol === -1) return '';
+  if (dateCol === -1) return '';
 
-  // 找到日期對應的行
-  const dateStr = `${date.getMonth() + 1}/${date.getDate()}`;
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][0] && data[i][0].toString().includes(dateStr)) {
-      const shift = data[i][nameCol];
-      return classifyShift(shift);
+  // 2. 從 B 列找到員工姓名對應的行
+  let nameRow = -1;
+  for (let row = 2; row < data.length; row++) {  // 從第 3 行開始（跳過標題）
+    const cellName = data[row][1];  // B 列（index 1）
+    if (cellName && cellName.toString().trim() === name) {
+      nameRow = row;
+      break;
     }
   }
 
-  return '';
+  if (nameRow === -1) return '';
+
+  // 3. 返回該員工在該日期的班別
+  const shift = data[nameRow][dateCol];
+  return shift ? classifyShift(shift) : '';
 }
 
 /**
@@ -700,7 +767,7 @@ function getGroupMembers(groupName) {
 
 /**
  * 獲取所有員工名單
- * 從完整班表的標題行讀取
+ * 從完整班表的 B 列（第二列）讀取所有員工姓名
  */
 function getAllEmployees() {
   const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_SCHEDULE);
@@ -708,13 +775,26 @@ function getAllEmployees() {
 
   if (data.length === 0) return [];
 
-  // 第一行是標題，第一列是日期，其他列是員工姓名
-  const headers = data[0];
   const employees = [];
 
-  for (let i = 1; i < headers.length; i++) {
-    if (headers[i]) {
-      employees.push(headers[i]);
+  // 員工姓名在 B 列（index 1），從第 3 行開始（跳過前兩行的標題）
+  for (let row = 2; row < data.length; row++) {
+    const name = data[row][1];  // B 列（第二列，index 1）
+
+    // 只收集非空的值，且排除可能的標題文字
+    if (name &&
+        typeof name === 'string' &&
+        name.trim() !== '' &&
+        name !== 'Long Holiday' &&
+        name !== 'Head' &&
+        !name.includes('限休人數') &&
+        !name.includes('已休人數')) {
+
+      const trimmedName = name.trim();
+      // 避免重複添加
+      if (!employees.includes(trimmedName)) {
+        employees.push(trimmedName);
+      }
     }
   }
 
