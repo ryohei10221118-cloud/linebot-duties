@@ -86,15 +86,18 @@ function handleTextMessage(event) {
 
 /**
  * 綁定用戶
- * 格式：綁定 姓名 [組別]
- * 例如：綁定 Jessica M1組  (完整模式)
- * 例如：綁定 John          (簡化模式)
+ * 格式：綁定 姓名
+ * 系統會自動檢查是否在完整班表中，來決定使用哪種模式
  */
 function handleBindUser(userId, message) {
-  const parts = message.replace('綁定 ', '').split(' ');
-  const name = parts[0];
-  const group = parts.length > 1 ? parts[1] : '';
-  const mode = group ? '完整' : '簡化';
+  const name = message.replace('綁定 ', '').trim();
+
+  // 檢查是否在完整班表中
+  const allEmployees = getAllEmployees();
+  const isInSchedule = allEmployees.includes(name);
+
+  // 自動判斷模式
+  const mode = isInSchedule ? '完整' : '簡化';
 
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_USERS);
 
@@ -104,7 +107,7 @@ function handleBindUser(userId, message) {
   for (let i = 1; i < data.length; i++) {
     if (data[i][0] === userId) {
       // 更新現有記錄
-      sheet.getRange(i + 1, 2, 1, 3).setValues([[name, mode, group]]);
+      sheet.getRange(i + 1, 2, 1, 3).setValues([[name, mode, '']]);
       found = true;
       break;
     }
@@ -112,7 +115,7 @@ function handleBindUser(userId, message) {
 
   if (!found) {
     // 新增記錄
-    sheet.appendRow([userId, name, mode, group]);
+    sheet.appendRow([userId, name, mode, '']);
   }
 
   let reply = `✅ 綁定成功！\n\n`;
@@ -120,8 +123,7 @@ function handleBindUser(userId, message) {
   reply += `📊 模式：${mode}模式\n`;
 
   if (mode === '完整') {
-    reply += `👥 組別：${group}\n\n`;
-    reply += `你可以使用以下命令：\n`;
+    reply += `\n你可以使用以下命令：\n`;
     reply += `• 明天上班嗎\n`;
     reply += `• 本週班表\n`;
     reply += `• 同班人員\n`;
