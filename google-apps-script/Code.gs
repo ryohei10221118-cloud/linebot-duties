@@ -264,24 +264,32 @@ function handleCheckCoworkers(userId) {
     return '明天你休息，沒有同班人員。';
   }
 
-  // 獲取組員
-  const groupMembers = getGroupMembers(user.group);
+  // 判斷我的班別類型
+  let myShiftType = '';
+  if (myShift.includes('夜班')) myShiftType = '夜班';
+  else if (myShift.includes('早班')) myShiftType = '早班';
+  else if (myShift.includes('中班')) myShiftType = '中班';
+  else return '無法判斷班別類型';
+
+  // 獲取所有人的名單
+  const allEmployees = getAllEmployees();
   const coworkers = [];
 
-  groupMembers.forEach(member => {
-    if (member !== user.name) {
-      const shift = getShiftForDate(member, tomorrow);
-      if (shift && !shift.includes('休息') && !shift.includes('休假')) {
-        coworkers.push(`${member} (${shift})`);
+  // 檢查所有人明天的班別
+  allEmployees.forEach(employee => {
+    if (employee !== user.name) {
+      const shift = getShiftForDate(employee, tomorrow);
+      if (shift && shift.includes(myShiftType)) {
+        coworkers.push(`${employee} (${shift})`);
       }
     }
   });
 
   if (coworkers.length === 0) {
-    return '明天只有你一個人上班。';
+    return `明天只有你一個人上${myShiftType}。`;
   }
 
-  let reply = `👥 明天同班人員：\n\n`;
+  let reply = `👥 明天同班人員 (${myShiftType})：\n\n`;
   coworkers.forEach(c => reply += `• ${c}\n`);
 
   return reply;
@@ -412,6 +420,29 @@ function getGroupMembers(groupName) {
     }
   }
   return [];
+}
+
+/**
+ * 獲取所有員工名單
+ * 從完整班表的標題行讀取
+ */
+function getAllEmployees() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SCHEDULE);
+  const data = sheet.getDataRange().getValues();
+
+  if (data.length === 0) return [];
+
+  // 第一行是標題，第一列是日期，其他列是員工姓名
+  const headers = data[0];
+  const employees = [];
+
+  for (let i = 1; i < headers.length; i++) {
+    if (headers[i]) {
+      employees.push(headers[i]);
+    }
+  }
+
+  return employees;
 }
 
 /**
