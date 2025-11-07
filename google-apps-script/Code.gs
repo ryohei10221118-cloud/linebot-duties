@@ -30,20 +30,65 @@ const SHEET_HOLIDAYS = '休息日記錄';
  */
 function doPost(e) {
   try {
+    // 檢查參數是否存在
+    if (!e) {
+      Logger.log('錯誤：e 參數是 undefined');
+      return HtmlService.createHtmlOutput();
+    }
+
+    if (!e.postData) {
+      Logger.log('錯誤：e.postData 是 undefined');
+      Logger.log('e 的內容: ' + JSON.stringify(e));
+      return HtmlService.createHtmlOutput();
+    }
+
+    Logger.log('收到 Webhook 請求');
+    Logger.log('postData: ' + e.postData.contents);
+
     const json = JSON.parse(e.postData.contents);
     const events = json.events;
 
+    Logger.log('事件數量: ' + events.length);
+
     events.forEach(event => {
+      Logger.log('事件類型: ' + event.type);
       if (event.type === 'message' && event.message.type === 'text') {
+        Logger.log('處理文字訊息: ' + event.message.text);
         handleTextMessage(event);
       }
     });
 
     return HtmlService.createHtmlOutput();
   } catch (error) {
-    Logger.log('Error: ' + error);
+    Logger.log('!!! doPost 錯誤 !!!');
+    Logger.log('錯誤: ' + error);
+    Logger.log('錯誤堆疊: ' + error.stack);
     return HtmlService.createHtmlOutput();
   }
+}
+
+/**
+ * 測試 Web App 是否正常運行
+ * 在瀏覽器中訪問 Web App URL 時會調用這個函數
+ */
+function doGet() {
+  Logger.log('doGet 被調用 - Web App 運行正常');
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>LINE Bot 狀態</title>
+    </head>
+    <body>
+      <h1>✅ LINE Bot Webhook 正常運行</h1>
+      <p>時間：${new Date().toLocaleString('zh-TW', {timeZone: 'Asia/Taipei'})}</p>
+      <p>如果你看到這個頁面，表示 Web App 部署成功。</p>
+      <p>請確認 LINE Developers Console 中的 Webhook URL 設置正確。</p>
+    </body>
+    </html>
+  `;
+  return HtmlService.createHtmlOutput(html);
 }
 
 // ==================== 訊息處理 ====================
