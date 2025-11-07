@@ -876,15 +876,21 @@ function getShiftForDate(name, date) {
   if (data.length === 0) return '';
 
   // 1. 從第一行找到日期對應的列
-  const dateStr = `${date.getMonth() + 1}/${date.getDate()}`;
   const headers = data[0];  // 第一行是日期
   let dateCol = -1;
 
+  const targetMonth = date.getMonth();  // 0-11
+  const targetDate = date.getDate();    // 1-31
+
   for (let col = 2; col < headers.length; col++) {  // 從 C 列開始（index 2）
     const cellValue = headers[col];
-    if (cellValue && cellValue.toString().includes(dateStr)) {
-      dateCol = col;
-      break;
+
+    // 檢查是否為 Date 物件
+    if (cellValue instanceof Date) {
+      if (cellValue.getMonth() === targetMonth && cellValue.getDate() === targetDate) {
+        dateCol = col;
+        break;
+      }
     }
   }
 
