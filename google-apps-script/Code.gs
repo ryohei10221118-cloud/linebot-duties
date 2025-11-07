@@ -12,6 +12,10 @@
 // 👇 請填入你的 LINE Bot 資訊
 const LINE_CHANNEL_ACCESS_TOKEN = 'YOUR_CHANNEL_ACCESS_TOKEN_HERE';
 
+// 👇 請填入你的 Google Sheets ID（從網址複製）
+// 格式：https://docs.google.com/spreadsheets/d/【這一段】/edit
+const SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_HERE';
+
 // Google Sheet 的 Tab 名稱（請勿修改，除非你改了 Sheet 的 Tab 名稱）
 const SHEET_USERS = '用戶配置';
 const SHEET_SCHEDULE = '完整班表';
@@ -26,22 +30,65 @@ const SHEET_HOLIDAYS = '休息日記錄';
  */
 function doPost(e) {
   try {
+    // 檢查參數是否存在
+    if (!e) {
+      Logger.log('錯誤：e 參數是 undefined');
+      return HtmlService.createHtmlOutput();
+    }
+
+    if (!e.postData) {
+      Logger.log('錯誤：e.postData 是 undefined');
+      Logger.log('e 的內容: ' + JSON.stringify(e));
+      return HtmlService.createHtmlOutput();
+    }
+
+    Logger.log('收到 Webhook 請求');
+    Logger.log('postData: ' + e.postData.contents);
+
     const json = JSON.parse(e.postData.contents);
     const events = json.events;
 
+    Logger.log('事件數量: ' + events.length);
+
     events.forEach(event => {
+      Logger.log('事件類型: ' + event.type);
       if (event.type === 'message' && event.message.type === 'text') {
+        Logger.log('處理文字訊息: ' + event.message.text);
         handleTextMessage(event);
       }
     });
 
-    return ContentService.createTextOutput(JSON.stringify({status: 'ok'}))
-      .setMimeType(ContentService.MimeType.JSON);
+    return HtmlService.createHtmlOutput();
   } catch (error) {
-    Logger.log('Error: ' + error);
-    return ContentService.createTextOutput(JSON.stringify({status: 'error', message: error.toString()}))
-      .setMimeType(ContentService.MimeType.JSON);
+    Logger.log('!!! doPost 錯誤 !!!');
+    Logger.log('錯誤: ' + error);
+    Logger.log('錯誤堆疊: ' + error.stack);
+    return HtmlService.createHtmlOutput();
   }
+}
+
+/**
+ * 測試 Web App 是否正常運行
+ * 在瀏覽器中訪問 Web App URL 時會調用這個函數
+ */
+function doGet() {
+  Logger.log('doGet 被調用 - Web App 運行正常');
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>LINE Bot 狀態</title>
+    </head>
+    <body>
+      <h1>✅ LINE Bot Webhook 正常運行</h1>
+      <p>時間：${new Date().toLocaleString('zh-TW', {timeZone: 'Asia/Taipei'})}</p>
+      <p>如果你看到這個頁面，表示 Web App 部署成功。</p>
+      <p>請確認 LINE Developers Console 中的 Webhook URL 設置正確。</p>
+    </body>
+    </html>
+  `;
+  return HtmlService.createHtmlOutput(html);
 }
 
 // ==================== 訊息處理 ====================
@@ -88,17 +135,20 @@ function handleTextMessage(event) {
 
 /**
  * 綁定用戶
- * 格式：綁定 姓名 [組別]
- * 例如：綁定 Jessica M1組  (完整模式)
- * 例如：綁定 John          (簡化模式)
+ * 格式：綁定 姓名
+ * 系統會自動檢查是否在完整班表中，來決定使用哪種模式
  */
 function handleBindUser(userId, message) {
-  const parts = message.replace('綁定 ', '').split(' ');
-  const name = parts[0];
-  const group = parts.length > 1 ? parts[1] : '';
-  const mode = group ? '完整' : '簡化';
+  const name = message.replace('綁定 ', '').trim();
 
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_USERS);
+  // 檢查是否在完整班表中
+  const allEmployees = getAllEmployees();
+  const isInSchedule = allEmployees.includes(name);
+
+  // 自動判斷模式
+  const mode = isInSchedule ? '完整' : '簡化';
+
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_USERS);
 
   // 檢查是否已經綁定
   const data = sheet.getDataRange().getValues();
@@ -106,7 +156,7 @@ function handleBindUser(userId, message) {
   for (let i = 1; i < data.length; i++) {
     if (data[i][0] === userId) {
       // 更新現有記錄
-      sheet.getRange(i + 1, 2, 1, 3).setValues([[name, mode, group]]);
+      sheet.getRange(i + 1, 2, 1, 3).setValues([[name, mode, '']]);
       found = true;
       break;
     }
@@ -114,7 +164,7 @@ function handleBindUser(userId, message) {
 
   if (!found) {
     // 新增記錄
-    sheet.appendRow([userId, name, mode, group]);
+    sheet.appendRow([userId, name, mode, '']);
   }
 
   let reply = `✅ 綁定成功！\n\n`;
@@ -122,8 +172,7 @@ function handleBindUser(userId, message) {
   reply += `📊 模式：${mode}模式\n`;
 
   if (mode === '完整') {
-    reply += `👥 組別：${group}\n\n`;
-    reply += `你可以使用以下命令：\n`;
+    reply += `\n你可以使用以下命令：\n`;
     reply += `• 明天上班嗎\n`;
     reply += `• 本週班表\n`;
     reply += `• 同班人員\n`;
@@ -163,7 +212,7 @@ function handleSetHolidays(userId, message) {
   });
 
   // 儲存到 Sheet
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_HOLIDAYS);
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_HOLIDAYS);
   const data = sheet.getDataRange().getValues();
 
   let found = false;
@@ -339,7 +388,7 @@ function handleCheckMonthHolidays(userId) {
  * 獲取用戶資訊
  */
 function getUserInfo(userId) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_USERS);
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_USERS);
   const data = sheet.getDataRange().getValues();
 
   for (let i = 1; i < data.length; i++) {
@@ -359,7 +408,7 @@ function getUserInfo(userId) {
  * 獲取用戶休息日列表
  */
 function getUserHolidays(name) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_HOLIDAYS);
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_HOLIDAYS);
   const data = sheet.getDataRange().getValues();
 
   for (let i = 1; i < data.length; i++) {
@@ -377,7 +426,7 @@ function getUserHolidays(name) {
  * 查詢指定日期的班別
  */
 function getShiftForDate(name, date) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SCHEDULE);
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_SCHEDULE);
   const data = sheet.getDataRange().getValues();
 
   // 第一行是標題，找到姓名對應的列
@@ -408,7 +457,7 @@ function getShiftForDate(name, date) {
  * 獲取組員列表
  */
 function getGroupMembers(groupName) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_GROUPS);
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_GROUPS);
   const data = sheet.getDataRange().getValues();
 
   for (let i = 1; i < data.length; i++) {
@@ -427,7 +476,7 @@ function getGroupMembers(groupName) {
  * 從完整班表的標題行讀取
  */
 function getAllEmployees() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SCHEDULE);
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_SCHEDULE);
   const data = sheet.getDataRange().getValues();
 
   if (data.length === 0) return [];
@@ -587,7 +636,7 @@ function pushMessage(userId, message) {
  * 每天早上 9:00 執行 - 通知夜班
  */
 function sendMorningNotifications() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_USERS);
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_USERS);
   const data = sheet.getDataRange().getValues();
 
   const today = new Date();
@@ -617,7 +666,7 @@ function sendMorningNotifications() {
  * 每天晚上 21:00 執行 - 通知早班/中班
  */
 function sendEveningNotifications() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_USERS);
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_USERS);
   const data = sheet.getDataRange().getValues();
 
   const tomorrow = new Date();
