@@ -489,14 +489,14 @@ function handleTextMessage(event) {
 
   let replyText = '';
 
-  // 命令路由
-  if (message.startsWith('綁定 ')) {
+  // 命令路由（支持有空格或無空格）
+  if (message.match(/^綁定\s*/)) {
     replyText = handleBindUser(userId, message);
   }
-  else if (message.startsWith('休息日 ')) {
+  else if (message.match(/^休息日\s*/)) {
     replyText = handleSetHolidays(userId, message);
   }
-  else if (message.startsWith('查詢 ') || message.startsWith('查询 ')) {
+  else if (message.match(/^查[詢询]\s*/)) {
     replyText = handleCheckSpecificDate(userId, message);
   }
   else if (message === '明天上班嗎' || message === '明天上班吗') {
@@ -524,11 +524,11 @@ function handleTextMessage(event) {
 
 /**
  * 綁定用戶
- * 格式：綁定 姓名
+ * 格式：綁定 姓名 或 綁定姓名（無空格也可）
  * 系統會自動檢查是否在完整班表中，來決定使用哪種模式
  */
 function handleBindUser(userId, message) {
-  const name = message.replace('綁定 ', '').trim();
+  const name = message.replace(/^綁定\s*/, '').trim();
 
   // 檢查是否在完整班表中
   const allEmployees = getAllEmployees();
@@ -589,8 +589,8 @@ function handleSetHolidays(userId, message) {
     return '❌ 你使用的是完整模式，不需要設置休息日。';
   }
 
-  // 解析休息日
-  const dateStr = message.replace('休息日 ', '').trim();
+  // 解析休息日（支持有空格或無空格）
+  const dateStr = message.replace(/^休息日\s*/, '').trim();
   const dates = dateStr.split(',').map(d => d.trim());
 
   // 轉換為完整日期格式
@@ -657,8 +657,8 @@ function handleCheckSpecificDate(userId, message) {
     return '❌ 請先綁定身份！\n例如：綁定 Sunny';
   }
 
-  // 從訊息中提取日期
-  const dateStr = message.replace('查詢 ', '').replace('查询 ', '').trim();
+  // 從訊息中提取日期（支持有空格或無空格）
+  const dateStr = message.replace(/^查[詢询]\s*/, '').trim();
 
   // 解析日期格式：MM/DD 或 M/D
   const dateMatch = dateStr.match(/^(\d{1,2})\/(\d{1,2})$/);
@@ -1078,17 +1078,18 @@ function checkFullMode(user, date) {
 function getHelpMessage() {
   return `🤖 班表查詢 Bot 使用說明\n\n` +
     `📝 基礎命令：\n` +
-    `• 綁定 [姓名] - 綁定身份（系統自動判斷模式）\n` +
+    `• 綁定 Sunny - 綁定身份（系統自動判斷模式）\n` +
     `• 幫助 - 顯示此幫助\n\n` +
     `📅 查詢命令：\n` +
-    `• 查詢 11/9 - 查詢指定日期的班別\n` +
+    `• 查詢 11/9 或 查詢11/9 - 查詢指定日期的班別\n` +
     `• 明天上班嗎 - 查詢明天的班別\n` +
     `• 本週班表 - 查詢本週班表\n\n` +
     `👥 完整模式（在班表中）：\n` +
-    `• 同班人員 - 查詢明天的同班人員\n\n` +
+    `• 同班人員 - 查詢明天的同班人員（自動顯示）\n\n` +
     `😴 簡化模式（不在班表中）：\n` +
-    `• 休息日 11/3,11/10,11/17 - 設定休息日\n` +
-    `• 本月休息日 - 查看本月休息日`;
+    `• 休息日 11/3,11/10 - 設定休息日\n` +
+    `• 本月休息日 - 查看本月休息日\n\n` +
+    `💡 提示：命令中的空格可有可無`;
 }
 
 /**
@@ -1189,10 +1190,9 @@ function sendMorningNotifications() {
 
     const user = { userId, name, mode, group };
 
-    if (mode === '簡化') {
-      const message = checkSimpleMode(user, today);
-      pushMessage(userId, message.replace('明天', '今天'));
-    } else {
+    // 只通知完整模式中今天上夜班的人
+    // 簡化模式的人統一在晚上 9 點收到明天的通知
+    if (mode === '完整') {
       const shift = getShiftForDate(name, today);
       if (shift && shift.includes('夜班')) {
         const message = checkFullMode(user, today);
