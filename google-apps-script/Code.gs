@@ -499,6 +499,9 @@ function handleTextMessage(event) {
   else if (message.match(/^查[詢询]\s*/)) {
     replyText = handleCheckSpecificDate(userId, message);
   }
+  else if (message === '今天上班嗎' || message === '今天上班吗') {
+    replyText = handleCheckToday(userId);
+  }
   else if (message === '明天上班嗎' || message === '明天上班吗') {
     replyText = handleCheckTomorrow(userId);
   }
@@ -626,6 +629,28 @@ function handleSetHolidays(userId, message) {
   reply += `\n系統會在每天自動提醒你！`;
 
   return reply;
+}
+
+/**
+ * 查詢今天是否上班
+ */
+function handleCheckToday(userId) {
+  const user = getUserInfo(userId);
+  if (!user) {
+    return '❌ 請先綁定身份！\n例如：綁定 Sunny';
+  }
+
+  const today = new Date();
+
+  if (user.mode === '簡化') {
+    const result = checkSimpleMode(user, today);
+    // 將 "明天" 替換為 "今天"
+    return result.replace(/明天 \d{1,2}\/\d{1,2} \([一二三四五六日]\)/, '今天');
+  } else {
+    const result = checkFullMode(user, today);
+    // 將 "明天" 替換為 "今天"
+    return result.replace(/明天 \d{1,2}\/\d{1,2} \([一二三四五六日]\)/, '今天');
+  }
 }
 
 /**
@@ -1081,8 +1106,9 @@ function getHelpMessage() {
     `• 綁定 Sunny - 綁定身份（系統自動判斷模式）\n` +
     `• 幫助 - 顯示此幫助\n\n` +
     `📅 查詢命令：\n` +
-    `• 查詢 11/9 或 查詢11/9 - 查詢指定日期的班別\n` +
+    `• 今天上班嗎 - 查詢今天的班別\n` +
     `• 明天上班嗎 - 查詢明天的班別\n` +
+    `• 查詢 11/9 或 查詢11/9 - 查詢指定日期的班別\n` +
     `• 本週班表 - 查詢本週班表\n\n` +
     `👥 完整模式（在班表中）：\n` +
     `• 同班人員 - 查詢明天的同班人員（自動顯示）\n\n` +
