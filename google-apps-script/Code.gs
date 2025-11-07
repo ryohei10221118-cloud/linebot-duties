@@ -216,6 +216,63 @@ function testBindUser() {
   Logger.log('========================================');
 }
 
+/**
+ * 🔍 調試班表結構
+ *
+ * 使用方法：
+ * 1. 選擇 "debugScheduleStructure" 函數
+ * 2. 點擊「執行」
+ * 3. 查看執行日誌，了解班表的實際結構
+ */
+function debugScheduleStructure() {
+  Logger.log('========================================');
+  Logger.log('🔍 調試班表結構');
+  Logger.log('========================================');
+  Logger.log('');
+
+  try {
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_SCHEDULE);
+    const data = sheet.getDataRange().getValues();
+
+    Logger.log('總行數: ' + data.length);
+    Logger.log('');
+
+    // 顯示前 10 行的前 5 列
+    Logger.log('【前 10 行的數據】');
+    for (let row = 0; row < Math.min(10, data.length); row++) {
+      let rowData = '第 ' + (row + 1) + ' 行: ';
+      for (let col = 0; col < Math.min(5, data[row].length); col++) {
+        const cellValue = data[row][col];
+        rowData += '[' + col + ']="' + cellValue + '" ';
+      }
+      Logger.log(rowData);
+    }
+    Logger.log('');
+
+    // 顯示第二列（B列）的所有非空值
+    Logger.log('【第二列（B列）的所有非空值】');
+    for (let row = 0; row < Math.min(30, data.length); row++) {
+      if (data[row][1]) {  // 第二列（index 1）
+        Logger.log('第 ' + (row + 1) + ' 行, B列: "' + data[row][1] + '"');
+      }
+    }
+    Logger.log('');
+
+    // 測試當前的 getAllEmployees() 函數
+    Logger.log('【當前 getAllEmployees() 返回的結果】');
+    const employees = getAllEmployees();
+    Logger.log('員工數量: ' + employees.length);
+    Logger.log('員工列表: ' + JSON.stringify(employees));
+
+  } catch (error) {
+    Logger.log('❌ 調試失敗');
+    Logger.log('錯誤: ' + error.message);
+    Logger.log('錯誤堆疊: ' + error.stack);
+  }
+
+  Logger.log('========================================');
+}
+
 // ==================== LINE Webhook 入口 ====================
 
 /**
