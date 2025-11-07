@@ -1189,10 +1189,9 @@ function sendMorningNotifications() {
 
     const user = { userId, name, mode, group };
 
-    if (mode === '簡化') {
-      const message = checkSimpleMode(user, today);
-      pushMessage(userId, message.replace('明天', '今天'));
-    } else {
+    // 只通知完整模式中今天上夜班的人
+    // 簡化模式的人統一在晚上 9 點收到明天的通知
+    if (mode === '完整') {
       const shift = getShiftForDate(name, today);
       if (shift && shift.includes('夜班')) {
         const message = checkFullMode(user, today);
