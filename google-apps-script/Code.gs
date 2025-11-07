@@ -35,12 +35,10 @@ function doPost(e) {
       }
     });
 
-    return ContentService.createTextOutput(JSON.stringify({status: 'ok'}))
-      .setMimeType(ContentService.MimeType.JSON);
+    return HtmlService.createHtmlOutput();
   } catch (error) {
     Logger.log('Error: ' + error);
-    return ContentService.createTextOutput(JSON.stringify({status: 'error', message: error.toString()}))
-      .setMimeType(ContentService.MimeType.JSON);
+    return HtmlService.createHtmlOutput();
   }
 }
 
