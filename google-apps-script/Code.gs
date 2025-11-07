@@ -1032,7 +1032,41 @@ function checkFullMode(user, date) {
   if (!shift || shift.includes('休息') || shift.includes('休假')) {
     reply += `😴 休息\n好好休息～`;
   } else {
-    reply += `${shift}\n早點睡，明天加油！`;
+    reply += `${shift}\n`;
+
+    // 自動查找同班人員
+    let myShiftType = '';
+    if (shift.includes('夜班')) myShiftType = '夜班';
+    else if (shift.includes('早班')) myShiftType = '早班';
+    else if (shift.includes('中班')) myShiftType = '中班';
+
+    if (myShiftType) {
+      // 獲取所有員工
+      const allEmployees = getAllEmployees();
+      const coworkers = [];
+
+      // 檢查每個員工的班別
+      allEmployees.forEach(employee => {
+        if (employee !== user.name) {
+          const employeeShift = getShiftForDate(employee, date);
+          if (employeeShift && employeeShift.includes(myShiftType)) {
+            coworkers.push(`${employee} (${employeeShift})`);
+          }
+        }
+      });
+
+      // 添加同班人員信息
+      if (coworkers.length > 0) {
+        reply += `\n👥 同班人員 (${coworkers.length}人)：\n`;
+        coworkers.forEach(coworker => {
+          reply += `• ${coworker}\n`;
+        });
+      } else {
+        reply += `\n👤 沒有其他同班人員`;
+      }
+    }
+
+    reply += `\n早點睡，明天加油！`;
   }
 
   return reply;
