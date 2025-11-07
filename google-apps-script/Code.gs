@@ -693,12 +693,12 @@ function handleCheckSpecificDate(userId, message) {
   // 查詢班別
   if (user.mode === '簡化') {
     const result = checkSimpleMode(user, queryDate);
-    // 將 "明天" 替換為具體日期
-    return result.replace('明天', dateDisplay);
+    // 將 "明天 MM/DD (X)" 替換為 "MM月DD日 (X)"
+    return result.replace(/明天 \d{1,2}\/\d{1,2} \([一二三四五六日]\)/, dateDisplay);
   } else {
     const result = checkFullMode(user, queryDate);
-    // 將 "明天" 替換為具體日期
-    return result.replace('明天', dateDisplay);
+    // 將 "明天 MM/DD (X)" 替換為 "MM月DD日 (X)"
+    return result.replace(/明天 \d{1,2}\/\d{1,2} \([一二三四五六日]\)/, dateDisplay);
   }
 }
 
