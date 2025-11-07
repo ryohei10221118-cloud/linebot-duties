@@ -22,6 +22,200 @@ const SHEET_SCHEDULE = '完整班表';
 const SHEET_GROUPS = '組別配置';
 const SHEET_HOLIDAYS = '休息日記錄';
 
+// ==================== 診斷測試函數 ====================
+
+/**
+ * 🧪 配置診斷測試函數
+ *
+ * 使用方法：
+ * 1. 在上方選擇函數下拉選單中選擇 "testConfiguration"
+ * 2. 點擊「執行」按鈕
+ * 3. 查看執行日誌（畫面下方會顯示）
+ *
+ * 這個函數會檢查：
+ * ✓ SPREADSHEET_ID 是否正確
+ * ✓ 是否能連接到 Google Sheets
+ * ✓ 是否能讀取班表數據
+ * ✓ LINE Channel Access Token 是否已設置
+ */
+function testConfiguration() {
+  const results = [];
+
+  results.push('========================================');
+  results.push('🧪 LINE Bot 配置診斷測試');
+  results.push('========================================');
+  results.push('');
+
+  // 測試 1: 檢查 SPREADSHEET_ID
+  results.push('【測試 1】檢查 SPREADSHEET_ID');
+  if (SPREADSHEET_ID === 'YOUR_SPREADSHEET_ID_HERE') {
+    results.push('❌ 失敗：SPREADSHEET_ID 尚未設置');
+    results.push('   請在第 17 行填入你的 Google Sheets ID');
+    results.push('');
+    Logger.log(results.join('\n'));
+    return results.join('\n');
+  }
+  results.push('✓ SPREADSHEET_ID 已設置: ' + SPREADSHEET_ID);
+  results.push('');
+
+  // 測試 2: 嘗試連接 Google Sheets
+  results.push('【測試 2】連接 Google Sheets');
+  try {
+    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+    results.push('✓ 成功連接到試算表');
+    results.push('   試算表名稱: ' + spreadsheet.getName());
+    results.push('');
+  } catch (error) {
+    results.push('❌ 失敗：無法連接到試算表');
+    results.push('   錯誤: ' + error.message);
+    results.push('   請確認：');
+    results.push('   1. SPREADSHEET_ID 是否正確');
+    results.push('   2. 該試算表是否存在');
+    results.push('   3. 你是否有權限訪問該試算表');
+    results.push('');
+    Logger.log(results.join('\n'));
+    return results.join('\n');
+  }
+
+  // 測試 3: 檢查必要的工作表是否存在
+  results.push('【測試 3】檢查工作表結構');
+  const requiredSheets = [
+    { name: SHEET_USERS, desc: '用戶配置' },
+    { name: SHEET_SCHEDULE, desc: '完整班表' },
+    { name: SHEET_HOLIDAYS, desc: '休息日記錄' }
+  ];
+
+  let allSheetsExist = true;
+  for (let sheetInfo of requiredSheets) {
+    try {
+      const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(sheetInfo.name);
+      if (sheet) {
+        results.push('✓ 找到工作表: ' + sheetInfo.name);
+      } else {
+        results.push('❌ 缺少工作表: ' + sheetInfo.name);
+        allSheetsExist = false;
+      }
+    } catch (error) {
+      results.push('❌ 無法檢查工作表: ' + sheetInfo.name);
+      results.push('   錯誤: ' + error.message);
+      allSheetsExist = false;
+    }
+  }
+  results.push('');
+
+  if (!allSheetsExist) {
+    results.push('⚠️ 請確保試算表中有這些 Tab：');
+    results.push('   - 用戶配置');
+    results.push('   - 完整班表');
+    results.push('   - 休息日記錄');
+    results.push('');
+  }
+
+  // 測試 4: 讀取班表數據
+  results.push('【測試 4】讀取班表數據');
+  try {
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_SCHEDULE);
+    const data = sheet.getDataRange().getValues();
+    results.push('✓ 成功讀取班表');
+    results.push('   資料行數: ' + data.length);
+    if (data.length > 0) {
+      results.push('   資料列數: ' + data[0].length);
+
+      // 讀取員工名單
+      const headers = data[0];
+      const employees = [];
+      for (let i = 1; i < headers.length && i <= 10; i++) {
+        if (headers[i]) {
+          employees.push(headers[i]);
+        }
+      }
+      results.push('   找到員工數: ' + employees.length);
+      if (employees.length > 0) {
+        results.push('   前幾位員工: ' + employees.slice(0, 5).join(', '));
+      }
+    }
+    results.push('');
+  } catch (error) {
+    results.push('❌ 失敗：無法讀取班表數據');
+    results.push('   錯誤: ' + error.message);
+    results.push('');
+  }
+
+  // 測試 5: 檢查 LINE Token
+  results.push('【測試 5】檢查 LINE Channel Access Token');
+  if (LINE_CHANNEL_ACCESS_TOKEN === 'YOUR_CHANNEL_ACCESS_TOKEN_HERE') {
+    results.push('⚠️ 警告：LINE_CHANNEL_ACCESS_TOKEN 尚未設置');
+    results.push('   請在第 13 行填入你的 LINE Channel Access Token');
+    results.push('   （這不影響本地測試，但會影響 LINE Bot 功能）');
+  } else {
+    results.push('✓ LINE_CHANNEL_ACCESS_TOKEN 已設置');
+    results.push('   Token 長度: ' + LINE_CHANNEL_ACCESS_TOKEN.length + ' 字符');
+  }
+  results.push('');
+
+  // 總結
+  results.push('========================================');
+  results.push('📊 診斷總結');
+  results.push('========================================');
+  if (allSheetsExist && SPREADSHEET_ID !== 'YOUR_SPREADSHEET_ID_HERE') {
+    results.push('✅ 基本配置正常！');
+    results.push('');
+    results.push('下一步：');
+    results.push('1. 確保已填入 LINE_CHANNEL_ACCESS_TOKEN（第 13 行）');
+    results.push('2. 部署為 Web 應用程式');
+    results.push('3. 在 LINE Developers Console 設置 Webhook URL');
+    results.push('4. 在 LINE 中測試發送：綁定 Sunny');
+  } else {
+    results.push('❌ 配置不完整，請根據上述錯誤進行修正');
+  }
+  results.push('========================================');
+
+  const output = results.join('\n');
+  Logger.log(output);
+  return output;
+}
+
+/**
+ * 🧪 測試綁定功能（模擬用戶綁定）
+ *
+ * 使用方法：
+ * 1. 修改下面的 testUserName 為你的名字（例如：'Sunny'）
+ * 2. 選擇 "testBindUser" 函數
+ * 3. 點擊「執行」
+ * 4. 查看執行日誌
+ */
+function testBindUser() {
+  const testUserName = 'Sunny';  // 👈 修改這裡為你的名字
+  const testUserId = 'TEST_USER_12345';
+
+  Logger.log('========================================');
+  Logger.log('🧪 測試綁定功能');
+  Logger.log('========================================');
+  Logger.log('測試用戶名稱: ' + testUserName);
+  Logger.log('');
+
+  try {
+    const message = '綁定 ' + testUserName;
+    const result = handleBindUser(testUserId, message);
+
+    Logger.log('✅ 綁定功能執行完成');
+    Logger.log('');
+    Logger.log('回覆訊息：');
+    Logger.log('---');
+    Logger.log(result);
+    Logger.log('---');
+    Logger.log('');
+    Logger.log('請檢查「用戶配置」工作表，應該會看到新增的記錄');
+
+  } catch (error) {
+    Logger.log('❌ 綁定功能執行失敗');
+    Logger.log('錯誤: ' + error.message);
+    Logger.log('錯誤堆疊: ' + error.stack);
+  }
+
+  Logger.log('========================================');
+}
+
 // ==================== LINE Webhook 入口 ====================
 
 /**
