@@ -273,6 +273,108 @@ function debugScheduleStructure() {
   Logger.log('========================================');
 }
 
+/**
+ * 🔍 調試特定日期的班別讀取
+ *
+ * 使用方法：
+ * 1. 修改下面的 testName 和 testDate
+ * 2. 選擇 "debugShiftForDate" 函數
+ * 3. 點擊「執行」
+ * 4. 查看執行日誌
+ */
+function debugShiftForDate() {
+  const testName = 'Sunny';  // 👈 修改為你的名字
+  const testDate = new Date(2025, 10, 9);  // 👈 修改為要測試的日期（年, 月-1, 日）
+  // 注意：月份從 0 開始，所以 11 月是 10
+
+  Logger.log('========================================');
+  Logger.log('🔍 調試特定日期的班別讀取');
+  Logger.log('========================================');
+  Logger.log('測試姓名: ' + testName);
+  Logger.log('測試日期: ' + testDate.toLocaleDateString('zh-TW'));
+  Logger.log('日期字串: ' + (testDate.getMonth() + 1) + '/' + testDate.getDate());
+  Logger.log('');
+
+  try {
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_SCHEDULE);
+    const data = sheet.getDataRange().getValues();
+
+    // 1. 尋找日期列
+    const dateStr = `${testDate.getMonth() + 1}/${testDate.getDate()}`;
+    const headers = data[0];
+    let dateCol = -1;
+
+    Logger.log('【步驟 1：尋找日期列】');
+    Logger.log('要找的日期字串: ' + dateStr);
+    Logger.log('');
+    Logger.log('第一行的所有值：');
+    for (let col = 0; col < Math.min(20, headers.length); col++) {
+      const cellValue = headers[col];
+      const match = cellValue && cellValue.toString().includes(dateStr);
+      Logger.log('  列 ' + col + ' (第 ' + String.fromCharCode(65 + col) + ' 列): "' + cellValue + '" ' + (match ? '✓ 匹配!' : ''));
+      if (match && dateCol === -1) {
+        dateCol = col;
+      }
+    }
+    Logger.log('');
+    Logger.log('找到日期在第 ' + dateCol + ' 列 (' + (dateCol >= 0 ? String.fromCharCode(65 + dateCol) + ' 列' : '未找到') + ')');
+    Logger.log('');
+
+    if (dateCol === -1) {
+      Logger.log('❌ 錯誤：找不到日期 ' + dateStr);
+      Logger.log('可能的原因：');
+      Logger.log('1. 日期格式不符（班表中可能是 "11/9" 或 "11/09"）');
+      Logger.log('2. 該日期不在班表範圍內');
+      return;
+    }
+
+    // 2. 尋找員工名字行
+    Logger.log('【步驟 2：尋找員工名字行】');
+    let nameRow = -1;
+    for (let row = 0; row < Math.min(30, data.length); row++) {
+      const cellName = data[row][1];  // B 列
+      if (cellName) {
+        const match = cellName.toString().trim() === testName;
+        Logger.log('  第 ' + (row + 1) + ' 行, B列: "' + cellName + '" ' + (match ? '✓ 匹配!' : ''));
+        if (match && nameRow === -1) {
+          nameRow = row;
+        }
+      }
+    }
+    Logger.log('');
+    Logger.log('找到員工在第 ' + (nameRow + 1) + ' 行');
+    Logger.log('');
+
+    if (nameRow === -1) {
+      Logger.log('❌ 錯誤：找不到員工 "' + testName + '"');
+      return;
+    }
+
+    // 3. 讀取交叉點的班別
+    Logger.log('【步驟 3：讀取班別】');
+    const shift = data[nameRow][dateCol];
+    Logger.log('原始班別代碼: "' + shift + '"');
+    Logger.log('班別類型: ' + typeof shift);
+    Logger.log('');
+
+    const classified = classifyShift(shift);
+    Logger.log('分類後的班別: "' + classified + '"');
+    Logger.log('');
+
+    // 4. 測試 getShiftForDate 函數
+    Logger.log('【步驟 4：測試 getShiftForDate 函數】');
+    const result = getShiftForDate(testName, testDate);
+    Logger.log('getShiftForDate 返回: "' + result + '"');
+
+  } catch (error) {
+    Logger.log('❌ 調試失敗');
+    Logger.log('錯誤: ' + error.message);
+    Logger.log('錯誤堆疊: ' + error.stack);
+  }
+
+  Logger.log('========================================');
+}
+
 // ==================== LINE Webhook 入口 ====================
 
 /**
@@ -394,19 +496,22 @@ function handleTextMessage(event) {
   else if (message.startsWith('休息日 ')) {
     replyText = handleSetHolidays(userId, message);
   }
-  else if (message === '明天上班嗎') {
+  else if (message.startsWith('查詢 ') || message.startsWith('查询 ')) {
+    replyText = handleCheckSpecificDate(userId, message);
+  }
+  else if (message === '明天上班嗎' || message === '明天上班吗') {
     replyText = handleCheckTomorrow(userId);
   }
-  else if (message === '本週班表') {
+  else if (message === '本週班表' || message === '本周班表') {
     replyText = handleCheckWeek(userId);
   }
-  else if (message === '同班人員') {
+  else if (message === '同班人員' || message === '同班人员') {
     replyText = handleCheckCoworkers(userId);
   }
   else if (message === '本月休息日') {
     replyText = handleCheckMonthHolidays(userId);
   }
-  else if (message === '幫助' || message === 'help') {
+  else if (message === '幫助' || message === '帮助' || message === 'help') {
     replyText = getHelpMessage();
   }
   else {
@@ -529,7 +634,7 @@ function handleSetHolidays(userId, message) {
 function handleCheckTomorrow(userId) {
   const user = getUserInfo(userId);
   if (!user) {
-    return '❌ 請先綁定身份！\n例如：綁定 Jessica M1組\n或：綁定 John';
+    return '❌ 請先綁定身份！\n例如：綁定 Sunny';
   }
 
   const tomorrow = new Date();
@@ -539,6 +644,61 @@ function handleCheckTomorrow(userId) {
     return checkSimpleMode(user, tomorrow);
   } else {
     return checkFullMode(user, tomorrow);
+  }
+}
+
+/**
+ * 查詢特定日期的班別
+ * 格式：查詢 11/9 或 查詢 11/09
+ */
+function handleCheckSpecificDate(userId, message) {
+  const user = getUserInfo(userId);
+  if (!user) {
+    return '❌ 請先綁定身份！\n例如：綁定 Sunny';
+  }
+
+  // 從訊息中提取日期
+  const dateStr = message.replace('查詢 ', '').replace('查询 ', '').trim();
+
+  // 解析日期格式：MM/DD 或 M/D
+  const dateMatch = dateStr.match(/^(\d{1,2})\/(\d{1,2})$/);
+  if (!dateMatch) {
+    return '❌ 日期格式錯誤！\n\n請使用以下格式：\n查詢 11/9\n查詢 12/25';
+  }
+
+  const month = parseInt(dateMatch[1]);
+  const day = parseInt(dateMatch[2]);
+
+  // 驗證月份和日期
+  if (month < 1 || month > 12) {
+    return '❌ 月份必須在 1-12 之間';
+  }
+  if (day < 1 || day > 31) {
+    return '❌ 日期必須在 1-31 之間';
+  }
+
+  // 建立日期物件（使用當前年份）
+  const currentYear = new Date().getFullYear();
+  const queryDate = new Date(currentYear, month - 1, day);
+
+  // 檢查日期是否有效（例如 2 月 30 日會無效）
+  if (queryDate.getMonth() !== month - 1) {
+    return '❌ 無效的日期！';
+  }
+
+  // 格式化日期顯示
+  const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+  const dateDisplay = `${month}月${day}日 (${weekdays[queryDate.getDay()]})`;
+
+  // 查詢班別
+  if (user.mode === '簡化') {
+    const result = checkSimpleMode(user, queryDate);
+    // 將 "明天" 替換為具體日期
+    return result.replace('明天', dateDisplay);
+  } else {
+    const result = checkFullMode(user, queryDate);
+    // 將 "明天" 替換為具體日期
+    return result.replace('明天', dateDisplay);
   }
 }
 
@@ -770,35 +930,67 @@ function getGroupMembers(groupName) {
  * 從完整班表的 B 列（第二列）讀取所有員工姓名
  */
 function getAllEmployees() {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_SCHEDULE);
-  const data = sheet.getDataRange().getValues();
-
-  if (data.length === 0) return [];
-
-  const employees = [];
-
-  // 員工姓名在 B 列（index 1），從第 3 行開始（跳過前兩行的標題）
-  for (let row = 2; row < data.length; row++) {
-    const name = data[row][1];  // B 列（第二列，index 1）
-
-    // 只收集非空的值，且排除可能的標題文字
-    if (name &&
-        typeof name === 'string' &&
-        name.trim() !== '' &&
-        name !== 'Long Holiday' &&
-        name !== 'Head' &&
-        !name.includes('限休人數') &&
-        !name.includes('已休人數')) {
-
-      const trimmedName = name.trim();
-      // 避免重複添加
-      if (!employees.includes(trimmedName)) {
-        employees.push(trimmedName);
-      }
-    }
+  // 檢查 SPREADSHEET_ID 是否已設置
+  if (!SPREADSHEET_ID || SPREADSHEET_ID === 'YOUR_SPREADSHEET_ID_HERE') {
+    Logger.log('❌ 錯誤：SPREADSHEET_ID 尚未設置');
+    Logger.log('請在 Code.gs 的第 17 行填入你的 Google Sheets ID');
+    Logger.log('');
+    Logger.log('如何找到 Spreadsheet ID：');
+    Logger.log('1. 打開你的 Google Sheets');
+    Logger.log('2. 從網址複製 ID：');
+    Logger.log('   https://docs.google.com/spreadsheets/d/【這一段就是ID】/edit');
+    Logger.log('3. 貼到 Code.gs 第 17 行：');
+    Logger.log('   const SPREADSHEET_ID = "你的ID";');
+    throw new Error('❌ SPREADSHEET_ID 尚未設置。請在第 17 行填入你的 Google Sheets ID。');
   }
 
-  return employees;
+  try {
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_SCHEDULE);
+
+    if (!sheet) {
+      Logger.log('❌ 錯誤：找不到工作表 "' + SHEET_SCHEDULE + '"');
+      Logger.log('請確認你的 Google Sheets 中有一個名為 "完整班表" 的工作表');
+      throw new Error('找不到工作表：' + SHEET_SCHEDULE);
+    }
+
+    const data = sheet.getDataRange().getValues();
+
+    if (data.length === 0) return [];
+
+    const employees = [];
+
+    // 員工姓名在 B 列（index 1），從第 3 行開始（跳過前兩行的標題）
+    for (let row = 2; row < data.length; row++) {
+      const name = data[row][1];  // B 列（第二列，index 1）
+
+      // 只收集非空的值，且排除可能的標題文字
+      if (name &&
+          typeof name === 'string' &&
+          name.trim() !== '' &&
+          name !== 'Long Holiday' &&
+          name !== 'Head' &&
+          !name.includes('限休人數') &&
+          !name.includes('已休人數')) {
+
+        const trimmedName = name.trim();
+        // 避免重複添加
+        if (!employees.includes(trimmedName)) {
+          employees.push(trimmedName);
+        }
+      }
+    }
+
+    return employees;
+  } catch (error) {
+    Logger.log('❌ getAllEmployees 錯誤：' + error.message);
+    Logger.log('錯誤堆疊：' + error.stack);
+    Logger.log('');
+    Logger.log('可能的原因：');
+    Logger.log('1. SPREADSHEET_ID 格式錯誤');
+    Logger.log('2. 沒有權限訪問該試算表');
+    Logger.log('3. 試算表不存在');
+    throw error;
+  }
 }
 
 /**
@@ -846,16 +1038,17 @@ function checkFullMode(user, date) {
 function getHelpMessage() {
   return `🤖 班表查詢 Bot 使用說明\n\n` +
     `📝 基礎命令：\n` +
-    `• 綁定 [姓名] [組別] - 綁定身份\n` +
+    `• 綁定 [姓名] - 綁定身份（系統自動判斷模式）\n` +
     `• 幫助 - 顯示此幫助\n\n` +
-    `📊 完整模式（有組別）：\n` +
-    `• 明天上班嗎\n` +
-    `• 本週班表\n` +
-    `• 同班人員\n\n` +
-    `😴 簡化模式（無組別）：\n` +
-    `• 休息日 11/3,11/10,11/17\n` +
-    `• 明天上班嗎\n` +
-    `• 本月休息日`;
+    `📅 查詢命令：\n` +
+    `• 查詢 11/9 - 查詢指定日期的班別\n` +
+    `• 明天上班嗎 - 查詢明天的班別\n` +
+    `• 本週班表 - 查詢本週班表\n\n` +
+    `👥 完整模式（在班表中）：\n` +
+    `• 同班人員 - 查詢明天的同班人員\n\n` +
+    `😴 簡化模式（不在班表中）：\n` +
+    `• 休息日 11/3,11/10,11/17 - 設定休息日\n` +
+    `• 本月休息日 - 查看本月休息日`;
 }
 
 /**
