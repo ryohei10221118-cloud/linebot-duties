@@ -770,35 +770,67 @@ function getGroupMembers(groupName) {
  * 從完整班表的 B 列（第二列）讀取所有員工姓名
  */
 function getAllEmployees() {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_SCHEDULE);
-  const data = sheet.getDataRange().getValues();
-
-  if (data.length === 0) return [];
-
-  const employees = [];
-
-  // 員工姓名在 B 列（index 1），從第 3 行開始（跳過前兩行的標題）
-  for (let row = 2; row < data.length; row++) {
-    const name = data[row][1];  // B 列（第二列，index 1）
-
-    // 只收集非空的值，且排除可能的標題文字
-    if (name &&
-        typeof name === 'string' &&
-        name.trim() !== '' &&
-        name !== 'Long Holiday' &&
-        name !== 'Head' &&
-        !name.includes('限休人數') &&
-        !name.includes('已休人數')) {
-
-      const trimmedName = name.trim();
-      // 避免重複添加
-      if (!employees.includes(trimmedName)) {
-        employees.push(trimmedName);
-      }
-    }
+  // 檢查 SPREADSHEET_ID 是否已設置
+  if (!SPREADSHEET_ID || SPREADSHEET_ID === 'YOUR_SPREADSHEET_ID_HERE') {
+    Logger.log('❌ 錯誤：SPREADSHEET_ID 尚未設置');
+    Logger.log('請在 Code.gs 的第 17 行填入你的 Google Sheets ID');
+    Logger.log('');
+    Logger.log('如何找到 Spreadsheet ID：');
+    Logger.log('1. 打開你的 Google Sheets');
+    Logger.log('2. 從網址複製 ID：');
+    Logger.log('   https://docs.google.com/spreadsheets/d/【這一段就是ID】/edit');
+    Logger.log('3. 貼到 Code.gs 第 17 行：');
+    Logger.log('   const SPREADSHEET_ID = "你的ID";');
+    throw new Error('❌ SPREADSHEET_ID 尚未設置。請在第 17 行填入你的 Google Sheets ID。');
   }
 
-  return employees;
+  try {
+    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_SCHEDULE);
+
+    if (!sheet) {
+      Logger.log('❌ 錯誤：找不到工作表 "' + SHEET_SCHEDULE + '"');
+      Logger.log('請確認你的 Google Sheets 中有一個名為 "完整班表" 的工作表');
+      throw new Error('找不到工作表：' + SHEET_SCHEDULE);
+    }
+
+    const data = sheet.getDataRange().getValues();
+
+    if (data.length === 0) return [];
+
+    const employees = [];
+
+    // 員工姓名在 B 列（index 1），從第 3 行開始（跳過前兩行的標題）
+    for (let row = 2; row < data.length; row++) {
+      const name = data[row][1];  // B 列（第二列，index 1）
+
+      // 只收集非空的值，且排除可能的標題文字
+      if (name &&
+          typeof name === 'string' &&
+          name.trim() !== '' &&
+          name !== 'Long Holiday' &&
+          name !== 'Head' &&
+          !name.includes('限休人數') &&
+          !name.includes('已休人數')) {
+
+        const trimmedName = name.trim();
+        // 避免重複添加
+        if (!employees.includes(trimmedName)) {
+          employees.push(trimmedName);
+        }
+      }
+    }
+
+    return employees;
+  } catch (error) {
+    Logger.log('❌ getAllEmployees 錯誤：' + error.message);
+    Logger.log('錯誤堆疊：' + error.stack);
+    Logger.log('');
+    Logger.log('可能的原因：');
+    Logger.log('1. SPREADSHEET_ID 格式錯誤');
+    Logger.log('2. 沒有權限訪問該試算表');
+    Logger.log('3. 試算表不存在');
+    throw error;
+  }
 }
 
 /**
