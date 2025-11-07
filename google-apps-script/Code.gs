@@ -12,6 +12,10 @@
 // 👇 請填入你的 LINE Bot 資訊
 const LINE_CHANNEL_ACCESS_TOKEN = 'YOUR_CHANNEL_ACCESS_TOKEN_HERE';
 
+// 👇 請填入你的 Google Sheets ID（從網址複製）
+// 格式：https://docs.google.com/spreadsheets/d/【這一段】/edit
+const SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_HERE';
+
 // Google Sheet 的 Tab 名稱（請勿修改，除非你改了 Sheet 的 Tab 名稱）
 const SHEET_USERS = '用戶配置';
 const SHEET_SCHEDULE = '完整班表';
@@ -99,7 +103,7 @@ function handleBindUser(userId, message) {
   // 自動判斷模式
   const mode = isInSchedule ? '完整' : '簡化';
 
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_USERS);
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_USERS);
 
   // 檢查是否已經綁定
   const data = sheet.getDataRange().getValues();
@@ -163,7 +167,7 @@ function handleSetHolidays(userId, message) {
   });
 
   // 儲存到 Sheet
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_HOLIDAYS);
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_HOLIDAYS);
   const data = sheet.getDataRange().getValues();
 
   let found = false;
@@ -339,7 +343,7 @@ function handleCheckMonthHolidays(userId) {
  * 獲取用戶資訊
  */
 function getUserInfo(userId) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_USERS);
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_USERS);
   const data = sheet.getDataRange().getValues();
 
   for (let i = 1; i < data.length; i++) {
@@ -359,7 +363,7 @@ function getUserInfo(userId) {
  * 獲取用戶休息日列表
  */
 function getUserHolidays(name) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_HOLIDAYS);
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_HOLIDAYS);
   const data = sheet.getDataRange().getValues();
 
   for (let i = 1; i < data.length; i++) {
@@ -377,7 +381,7 @@ function getUserHolidays(name) {
  * 查詢指定日期的班別
  */
 function getShiftForDate(name, date) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SCHEDULE);
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_SCHEDULE);
   const data = sheet.getDataRange().getValues();
 
   // 第一行是標題，找到姓名對應的列
@@ -408,7 +412,7 @@ function getShiftForDate(name, date) {
  * 獲取組員列表
  */
 function getGroupMembers(groupName) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_GROUPS);
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_GROUPS);
   const data = sheet.getDataRange().getValues();
 
   for (let i = 1; i < data.length; i++) {
@@ -427,7 +431,7 @@ function getGroupMembers(groupName) {
  * 從完整班表的標題行讀取
  */
 function getAllEmployees() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SCHEDULE);
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_SCHEDULE);
   const data = sheet.getDataRange().getValues();
 
   if (data.length === 0) return [];
@@ -587,7 +591,7 @@ function pushMessage(userId, message) {
  * 每天早上 9:00 執行 - 通知夜班
  */
 function sendMorningNotifications() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_USERS);
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_USERS);
   const data = sheet.getDataRange().getValues();
 
   const today = new Date();
@@ -617,7 +621,7 @@ function sendMorningNotifications() {
  * 每天晚上 21:00 執行 - 通知早班/中班
  */
 function sendEveningNotifications() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_USERS);
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_USERS);
   const data = sheet.getDataRange().getValues();
 
   const tomorrow = new Date();
