@@ -27,42 +27,75 @@ const SHEET_HOLIDAYS = '休息日記錄';
 /**
  * LINE Webhook 入口函數
  * 當用戶在 LINE 發送訊息時，會觸發這個函數
+ *
+ * ⚠️ 注意：請不要在 Apps Script 編輯器中手動運行此函數！
+ * 此函數只應該由 LINE 平台通過 Webhook 調用。
  */
 function doPost(e) {
   try {
+    Logger.log('========== doPost 被調用 ==========');
+    Logger.log('當前時間: ' + new Date().toLocaleString('zh-TW', {timeZone: 'Asia/Taipei'}));
+
     // 檢查參數是否存在
     if (!e) {
-      Logger.log('錯誤：e 參數是 undefined');
+      Logger.log('⚠️ 錯誤：e 參數是 undefined');
+      Logger.log('這通常表示：');
+      Logger.log('1. 在 Apps Script 編輯器中手動運行了此函數（請不要這樣做）');
+      Logger.log('2. 或者部署配置有問題');
+      Logger.log('');
+      Logger.log('✅ 正確做法：');
+      Logger.log('1. 確保已部署為 Web 應用程式');
+      Logger.log('2. 從 LINE 發送訊息來測試');
+      Logger.log('3. 不要手動運行 doPost() 函數');
       return HtmlService.createHtmlOutput();
     }
+
+    Logger.log('✓ e 參數存在');
+    Logger.log('e 的類型: ' + typeof e);
+    Logger.log('e 的鍵值: ' + Object.keys(e));
 
     if (!e.postData) {
-      Logger.log('錯誤：e.postData 是 undefined');
-      Logger.log('e 的內容: ' + JSON.stringify(e));
+      Logger.log('⚠️ 錯誤：e.postData 是 undefined');
+      Logger.log('e 的完整內容: ' + JSON.stringify(e));
+      Logger.log('');
+      Logger.log('可能的原因：');
+      Logger.log('1. 這可能是 LINE 的驗證請求（GET 請求）');
+      Logger.log('2. 或者 Webhook URL 配置不正確');
       return HtmlService.createHtmlOutput();
     }
 
-    Logger.log('收到 Webhook 請求');
-    Logger.log('postData: ' + e.postData.contents);
+    Logger.log('✓ e.postData 存在');
+    Logger.log('收到 Webhook POST 請求');
+    Logger.log('postData.contents: ' + e.postData.contents);
 
     const json = JSON.parse(e.postData.contents);
     const events = json.events;
 
+    Logger.log('✓ JSON 解析成功');
     Logger.log('事件數量: ' + events.length);
 
-    events.forEach(event => {
+    events.forEach((event, index) => {
+      Logger.log('--- 處理事件 ' + (index + 1) + ' ---');
       Logger.log('事件類型: ' + event.type);
+
       if (event.type === 'message' && event.message.type === 'text') {
-        Logger.log('處理文字訊息: ' + event.message.text);
+        Logger.log('訊息內容: ' + event.message.text);
+        Logger.log('發送者 ID: ' + event.source.userId);
         handleTextMessage(event);
+        Logger.log('✓ 訊息處理完成');
+      } else {
+        Logger.log('略過非文字訊息事件');
       }
     });
 
+    Logger.log('========== doPost 執行完成 ==========');
     return HtmlService.createHtmlOutput();
   } catch (error) {
-    Logger.log('!!! doPost 錯誤 !!!');
-    Logger.log('錯誤: ' + error);
+    Logger.log('!!! doPost 發生錯誤 !!!');
+    Logger.log('錯誤類型: ' + error.name);
+    Logger.log('錯誤訊息: ' + error.message);
     Logger.log('錯誤堆疊: ' + error.stack);
+    Logger.log('=====================================');
     return HtmlService.createHtmlOutput();
   }
 }

@@ -1,10 +1,27 @@
 # LINE Bot Webhook 連接問題排查指南
 
-## 🔴 當前問題
+## 🔴 常見錯誤診斷
 
-錯誤訊息：`TypeError: Cannot read properties of undefined (reading 'postData')`
+### 錯誤 A：`e 參數是 undefined`
 
-這個錯誤表示 LINE 沒有正確地向你的 Webhook 發送 POST 請求。
+**原因：** 你在 Apps Script 編輯器中手動運行了 `doPost()` 函數
+
+**解決方法：**
+1. ❌ **不要**在 Apps Script 編輯器中點擊「執行」按鈕來運行 `doPost()`
+2. ✅ **正確做法**：
+   - 確保已經部署為 Web 應用程式
+   - 在 LINE 中向 Bot 發送訊息來測試
+   - 或者在瀏覽器中訪問 Web App URL（會調用 `doGet()`）
+
+**重要：** `doPost()` 函數只能由 LINE 平台通過 Webhook 調用，不能手動運行！
+
+---
+
+### 錯誤 B：`e.postData is undefined`
+
+**原因：** LINE 沒有正確地向你的 Webhook 發送 POST 請求
+
+**解決方法：** 請按照下面的「解決步驟」進行檢查
 
 ---
 
