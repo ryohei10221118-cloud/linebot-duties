@@ -571,7 +571,7 @@ function handleTextMessage(event) {
   else if (message === '同班人員' || message === '同班人员') {
     replyText = handleCheckCoworkers(userId);
   }
-  else if (message === '本月休息日') {
+  else if (message === '本月休假日') {
     replyText = handleCheckMonthHolidays(userId);
   }
   else if (message === '幫助' || message === '帮助' || message === 'help') {
@@ -811,7 +811,7 @@ function handleCheckWeek(userId) {
   }
 
   if (user.mode === '簡化') {
-    return '簡化模式不支援本週班表查詢。\n可以查看「本月休息日」。';
+    return '簡化模式不支援本週班表查詢。\n可以查看「本月休假日」。';
   }
 
   // 獲取本週日期範圍
@@ -888,7 +888,7 @@ function handleCheckCoworkers(userId) {
 }
 
 /**
- * 查詢本月休息日
+ * 查詢本月休假日
  */
 function handleCheckMonthHolidays(userId) {
   const user = getUserInfo(userId);
@@ -1132,9 +1132,9 @@ function checkSimpleMode(user, date) {
   let reply = `📅 明天 ${date.getMonth() + 1}/${date.getDate()} (${dayName})\n\n`;
 
   if (isHoliday) {
-    reply += `😴 休息日\n好好休息～`;
+    reply += `😴 休假啦\n好好休息～`;
   } else {
-    reply += `💼 需要上班\n早點睡，明天加油！`;
+    reply += `💼 需要上班\n早點睡，上班加油！`;
   }
 
   return reply;
@@ -1150,7 +1150,7 @@ function checkFullMode(user, date) {
   let reply = `📅 明天 ${date.getMonth() + 1}/${date.getDate()} (${dayName})\n\n`;
 
   if (!shift || shift.includes('休息') || shift.includes('休假')) {
-    reply += `😴 休息\n好好休息～`;
+    reply += `😴 休假\n好好休息～`;
   } else {
     reply += `${shift}\n`;
 
@@ -1186,7 +1186,7 @@ function checkFullMode(user, date) {
       }
     }
 
-    reply += `\n早點睡，明天加油！`;
+    reply += `\n早點睡，上班加油！`;
   }
 
   return reply;
@@ -1198,18 +1198,16 @@ function checkFullMode(user, date) {
 function getHelpMessage() {
   return `🤖 班表查詢 Bot 使用說明\n\n` +
     `📝 基礎命令：\n` +
-    `• 綁定 Sunny - 綁定身份（系統自動判斷模式）\n` +
+    `• 綁定xxx - 綁定身份\n` +
     `• 幫助 - 顯示此幫助\n\n` +
     `📅 查詢命令：\n` +
     `• 今天上班嗎 - 查詢今天的班別\n` +
     `• 明天上班嗎 - 查詢明天的班別\n` +
-    `• 查詢 11/9 或 查詢11/9 - 查詢指定日期的班別\n` +
+    `• 查詢11/9 - 查詢指定日期的班別\n` +
     `• 本週班表 - 查詢本週班表\n\n` +
-    `👥 完整模式（在班表中）：\n` +
-    `• 同班人員 - 查詢明天的同班人員（自動顯示）\n\n` +
     `😴 簡化模式（不在班表中）：\n` +
-    `• 休息日 11/3,11/10 - 設定休息日\n` +
-    `• 本月休息日 - 查看本月休息日\n\n` +
+    `• 休假日 11/3,11/10 - 設定休假日\n` +
+    `• 本月休假日 - 查看本月休假日\n\n` +
     `💡 提示：命令中的空格可有可無`;
 }
 
@@ -1226,9 +1224,9 @@ function classifyShift(shiftCode) {
     return code === 'SL' ? '🤒 病假' : '🏖️ 休假';
   }
 
-  if (code === 'O') return '😴 休息';
-  if (code === 'P') return '🏖️ 休假';
-  if (code === 'BTD') return '✈️ 出差';
+  if (code === 'O') return '😴 休假';
+  if (code === 'P') return '🏖️ 特休';
+  if (code === 'BTD') return '🎂 生日假';
 
   // 夜班：所有 N 開頭
   if (code.startsWith('N')) return `🌙 夜班 ${code}`;
