@@ -22,7 +22,37 @@ const SHEET_SCHEDULE = '完整班表';
 const SHEET_GROUPS = '組別配置';
 const SHEET_HOLIDAYS = '休息日記錄';
 
-// ==================== 配置驗證輔助函數 ====================
+// ==================== 配置驗證與存取輔助函數 ====================
+
+/**
+ * 安全地取得試算表，帶有自動重試機制
+ * 用於處理 Google Apps Script 的間歇性服務問題
+ * @param {number} maxRetries - 最大重試次數（預設 3 次）
+ * @returns {Spreadsheet|null} 試算表物件，失敗則回傳 null
+ */
+function getSpreadsheetWithRetry(maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+      if (spreadsheet) {
+        return spreadsheet;
+      }
+      Logger.log('⚠️ 嘗試 ' + attempt + '/' + maxRetries + '：SpreadsheetApp.openById 回傳 null');
+    } catch (error) {
+      Logger.log('⚠️ 嘗試 ' + attempt + '/' + maxRetries + ' 失敗：' + error.message);
+    }
+
+    // 如果不是最後一次嘗試，等待後重試（exponential backoff）
+    if (attempt < maxRetries) {
+      const waitTime = Math.pow(2, attempt - 1) * 1000; // 1s, 2s, 4s
+      Utilities.sleep(waitTime);
+      Logger.log('等待 ' + waitTime + 'ms 後重試...');
+    }
+  }
+
+  Logger.log('❌ 已嘗試 ' + maxRetries + ' 次，仍無法存取試算表');
+  return null;
+}
 
 /**
  * 驗證 SPREADSHEET_ID 配置是否正確
@@ -37,25 +67,19 @@ function validateSpreadsheetConfig() {
     };
   }
 
-  // 嘗試連接試算表
-  try {
-    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
-    if (!spreadsheet) {
-      return {
-        valid: false,
-        error: 'SpreadsheetApp.openById 回傳 null。請確認 SPREADSHEET_ID 是否正確。'
-      };
-    }
-    return {
-      valid: true,
-      spreadsheet: spreadsheet
-    };
-  } catch (error) {
+  // 嘗試連接試算表（帶重試機制）
+  const spreadsheet = getSpreadsheetWithRetry();
+  if (!spreadsheet) {
     return {
       valid: false,
-      error: '無法存取試算表: ' + error.message + '\n請確認：\n1. SPREADSHEET_ID 是否正確\n2. 該試算表是否存在\n3. 腳本執行帳號是否有存取權限'
+      error: '無法存取試算表（已重試 3 次）。\n可能原因：\n1. SPREADSHEET_ID 不正確\n2. 該試算表不存在\n3. 腳本執行帳號沒有存取權限\n4. Google 服務暫時性問題'
     };
   }
+
+  return {
+    valid: true,
+    spreadsheet: spreadsheet
+  };
 }
 
 // ==================== 診斷測試函數 ====================
@@ -567,16 +591,25 @@ function handleTextMessage(event) {
  * 系統會自動檢查是否在完整班表中，來決定使用哪種模式
  */
 function handleBindUser(userId, message) {
-  const name = message.replace(/^綁定\s*/, '').trim();
+  try {
+    const name = message.replace(/^綁定\s*/, '').trim();
 
-  // 檢查是否在完整班表中
-  const allEmployees = getAllEmployees();
-  const isInSchedule = allEmployees.includes(name);
+    // 檢查是否在完整班表中
+    const allEmployees = getAllEmployees();
+    const isInSchedule = allEmployees.includes(name);
 
-  // 自動判斷模式
-  const mode = isInSchedule ? '完整' : '簡化';
+    // 自動判斷模式
+    const mode = isInSchedule ? '完整' : '簡化';
 
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_USERS);
+    const spreadsheet = getSpreadsheetWithRetry();
+    if (!spreadsheet) {
+      return '❌ 系統暫時無法存取資料，請稍後再試。';
+    }
+
+    const sheet = spreadsheet.getSheetByName(SHEET_USERS);
+    if (!sheet) {
+      return '❌ 系統配置錯誤，請聯絡管理員。';
+    }
 
   // 檢查是否已經綁定
   const data = sheet.getDataRange().getValues();
@@ -611,7 +644,11 @@ function handleBindUser(userId, message) {
     reply += `設置後系統會每天自動提醒你！`;
   }
 
-  return reply;
+    return reply;
+  } catch (error) {
+    Logger.log('❌ handleBindUser 發生錯誤：' + error.message);
+    return '❌ 綁定失敗，系統暫時無法處理，請稍後再試。';
+  }
 }
 
 /**
@@ -931,8 +968,20 @@ function getUserHolidays(name) {
  * 查詢指定日期的班別
  */
 function getShiftForDate(name, date) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_SCHEDULE);
-  const data = sheet.getDataRange().getValues();
+  try {
+    const spreadsheet = getSpreadsheetWithRetry();
+    if (!spreadsheet) {
+      Logger.log('❌ getShiftForDate: 無法存取試算表');
+      return '';
+    }
+
+    const sheet = spreadsheet.getSheetByName(SHEET_SCHEDULE);
+    if (!sheet) {
+      Logger.log('❌ getShiftForDate: 找不到工作表 ' + SHEET_SCHEDULE);
+      return '';
+    }
+
+    const data = sheet.getDataRange().getValues();
 
   if (data.length === 0) return '';
 
@@ -969,9 +1018,13 @@ function getShiftForDate(name, date) {
 
   if (nameRow === -1) return '';
 
-  // 3. 返回該員工在該日期的班別
-  const shift = data[nameRow][dateCol];
-  return shift ? classifyShift(shift) : '';
+    // 3. 返回該員工在該日期的班別
+    const shift = data[nameRow][dateCol];
+    return shift ? classifyShift(shift) : '';
+  } catch (error) {
+    Logger.log('❌ getShiftForDate 發生錯誤：' + error.message);
+    return '';
+  }
 }
 
 /**
@@ -1012,8 +1065,13 @@ function getAllEmployees() {
   }
 
   try {
-    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_SCHEDULE);
+    const spreadsheet = getSpreadsheetWithRetry();
+    if (!spreadsheet) {
+      Logger.log('❌ 錯誤：無法存取試算表（已重試 3 次）');
+      throw new Error('無法存取試算表');
+    }
 
+    const sheet = spreadsheet.getSheetByName(SHEET_SCHEDULE);
     if (!sheet) {
       Logger.log('❌ 錯誤：找不到工作表 "' + SHEET_SCHEDULE + '"');
       Logger.log('請確認你的 Google Sheets 中有一個名為 "完整班表" 的工作表');
