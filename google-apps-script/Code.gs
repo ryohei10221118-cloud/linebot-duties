@@ -966,6 +966,73 @@ function getUserHolidays(name) {
 }
 
 /**
+ * 判斷用戶的主要班別類型（夜班/早班/中班）
+ * 通過檢查本月前後幾天的班別來判斷
+ */
+function getUserShiftType(name, date) {
+  try {
+    const spreadsheet = getSpreadsheetWithRetry();
+    if (!spreadsheet) {
+      return null;
+    }
+
+    const sheet = spreadsheet.getSheetByName(SHEET_SCHEDULE);
+    if (!sheet) {
+      return null;
+    }
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length === 0) return null;
+
+    // 找到員工的行
+    let nameRow = -1;
+    for (let row = 2; row < data.length; row++) {
+      const cellName = data[row][1];
+      if (cellName && cellName.toString().trim() === name) {
+        nameRow = row;
+        break;
+      }
+    }
+
+    if (nameRow === -1) return null;
+
+    // 檢查本月所有日期的班別（取前後15天的範圍）
+    const nightShiftCount = 0;
+    const morningShiftCount = 0;
+    const afternoonShiftCount = 0;
+
+    let nightCount = 0;
+    let morningCount = 0;
+    let afternoonCount = 0;
+
+    // 檢查這一行所有的班別代碼
+    for (let col = 2; col < data[nameRow].length; col++) {
+      const shiftCode = data[nameRow][col];
+      if (shiftCode && typeof shiftCode === 'string') {
+        const code = shiftCode.toString().trim().toUpperCase();
+        if (code.startsWith('N')) nightCount++;
+        else if (code.startsWith('M')) morningCount++;
+        else if (code.startsWith('A')) afternoonCount++;
+      }
+    }
+
+    // 返回最多的班別類型
+    if (nightCount > 0 && nightCount >= morningCount && nightCount >= afternoonCount) {
+      return '夜班';
+    } else if (morningCount > 0 && morningCount >= afternoonCount) {
+      return '早班';
+    } else if (afternoonCount > 0) {
+      return '中班';
+    }
+
+    return null;
+  } catch (error) {
+    Logger.log('❌ getUserShiftType 發生錯誤：' + error.message);
+    return null;
+  }
+}
+
+/**
  * 查詢指定日期的班別
  */
 function getShiftForDate(name, date) {
@@ -1318,7 +1385,7 @@ function pushMessage(userId, message) {
 // ==================== 定時通知 ====================
 
 /**
- * 每天早上 9:00 執行 - 通知所有完整模式用戶今天的班別
+ * 每天早上 9:00 執行 - 通知今天上夜班的人
  */
 function sendMorningNotifications() {
   try {
@@ -1364,14 +1431,18 @@ function sendMorningNotifications() {
 
         const user = { userId, name, mode, group };
 
-        // 通知完整模式中所有人今天的班別（包括夜班、早班、中班、休假等）
+        // 早上只通知夜班人員（不管今天是否休假）
+        // 早班/中班的人在前一天晚上收到通知
         // 簡化模式的人統一在晚上 9 點收到明天的通知
         if (mode === '完整') {
-          const message = checkFullMode(user, today);
-          pushMessage(userId, message.replace('明天', '今天'));
-          notificationCount++;
-          const shift = getShiftForDate(name, today);
-          Logger.log('✓ 已通知 ' + name + ' (' + (shift || '無班別資料') + ')');
+          const shiftType = getUserShiftType(name, today);
+          if (shiftType === '夜班') {
+            const message = checkFullMode(user, today);
+            pushMessage(userId, message.replace('明天', '今天'));
+            notificationCount++;
+            const shift = getShiftForDate(name, today);
+            Logger.log('✓ 已通知 ' + name + ' (夜班人員, 今天: ' + (shift || '無資料') + ')');
+          }
         }
       } catch (userError) {
         errorCount++;
@@ -1448,13 +1519,15 @@ function sendEveningNotifications() {
           pushMessage(userId, message);
           notificationCount++;
           Logger.log('✓ 已通知 ' + name + ' (簡化模式)');
-        } else {
-          const shift = getShiftForDate(name, tomorrow);
-          if (shift && (shift.includes('早班') || shift.includes('中班') || shift.includes('休息'))) {
+        } else if (mode === '完整') {
+          // 晚上通知早班/中班人員（不管明天是否休假）
+          const shiftType = getUserShiftType(name, tomorrow);
+          if (shiftType === '早班' || shiftType === '中班') {
             const message = checkFullMode(user, tomorrow);
             pushMessage(userId, message);
             notificationCount++;
-            Logger.log('✓ 已通知 ' + name + ' (' + shift + ')');
+            const shift = getShiftForDate(name, tomorrow);
+            Logger.log('✓ 已通知 ' + name + ' (' + shiftType + '人員, 明天: ' + (shift || '無資料') + ')');
           }
         }
       } catch (userError) {
@@ -1557,13 +1630,23 @@ function testMorningNotifications() {
       Logger.log('  模式：' + mode);
 
       if (mode === '完整') {
-        Logger.log('  → 查詢班別中...');
+        Logger.log('  → 判斷班別類型...');
+        const shiftType = getUserShiftType(name, today);
+        Logger.log('  → 班別類型：「' + (shiftType || '無法判斷') + '」');
+
         const shift = getShiftForDate(name, today);
-        Logger.log('  → 返回班別：「' + shift + '」');
-        notificationCount++;
-        Logger.log('  ✓ 符合條件！會收到通知（完整模式所有人都會收到今天的班別通知）');
+        Logger.log('  → 今天班別：「' + (shift || '無資料') + '」');
+
+        if (shiftType === '夜班') {
+          notificationCount++;
+          Logger.log('  ✓ 符合條件！會收到通知（夜班人員，不論今天是否休假）');
+        } else if (shiftType === '早班' || shiftType === '中班') {
+          Logger.log('  ⊗ ' + shiftType + '人員（在前一天晚上收到明天的通知）');
+        } else {
+          Logger.log('  ⊗ 無法判斷班別類型');
+        }
       } else {
-        Logger.log('  ⊗ 跳過：不是完整模式（早上只通知完整模式，簡化模式在晚上通知）');
+        Logger.log('  ⊗ 跳過：簡化模式（早上只通知完整模式的夜班人員，簡化模式在晚上通知）');
       }
       Logger.log('');
     }
@@ -1584,9 +1667,12 @@ function testMorningNotifications() {
       }
 
       if (mode === '完整') {
-        displayCount++;
-        const shift = getShiftForDate(name, today);
-        Logger.log(displayCount + '. ' + name + ' - ' + (shift || '無班別資料') + ' (組別: ' + (group || '無') + ')');
+        const shiftType = getUserShiftType(name, today);
+        if (shiftType === '夜班') {
+          displayCount++;
+          const shift = getShiftForDate(name, today);
+          Logger.log(displayCount + '. ' + name + ' (夜班人員) - 今天: ' + (shift || '無資料') + ' (組別: ' + (group || '無') + ')');
+        }
       }
     }
 
@@ -1655,11 +1741,64 @@ function testEveningNotifications() {
     tomorrow.setDate(tomorrow.getDate() + 1);
     Logger.log('測試日期（明天）：' + tomorrow.toLocaleDateString('zh-TW'));
     Logger.log('');
-    Logger.log('以下用戶會收到晚上通知（早班/中班/休息/簡化模式）：');
-    Logger.log('---');
 
+    // 先顯示所有用戶資料
+    Logger.log('【所有用戶資料】');
+    for (let i = 1; i < data.length; i++) {
+      const userId = data[i][0];
+      const name = data[i][1];
+      const mode = data[i][2];
+      const group = data[i][3];
+      Logger.log((i) + '. userId=' + userId + ', name=' + name + ', mode=' + mode + ', group=' + group);
+    }
+    Logger.log('');
+
+    Logger.log('【檢查每個用戶的班別】');
     let notificationCount = 0;
 
+    for (let i = 1; i < data.length; i++) {
+      const userId = data[i][0];
+      const name = data[i][1];
+      const mode = data[i][2];
+      const group = data[i][3];
+
+      Logger.log('--- 檢查用戶 ' + i + ': ' + name + ' ---');
+
+      if (!userId || !name) {
+        Logger.log('⊗ 跳過：userId 或 name 為空');
+        continue;
+      }
+
+      Logger.log('  模式：' + mode);
+
+      if (mode === '簡化') {
+        notificationCount++;
+        Logger.log('  ✓ 符合條件！會收到通知（簡化模式固定在晚上通知）');
+      } else if (mode === '完整') {
+        Logger.log('  → 判斷班別類型...');
+        const shiftType = getUserShiftType(name, tomorrow);
+        Logger.log('  → 班別類型：「' + (shiftType || '無法判斷') + '」');
+
+        const shift = getShiftForDate(name, tomorrow);
+        Logger.log('  → 明天班別：「' + (shift || '無資料') + '」');
+
+        if (shiftType === '早班' || shiftType === '中班') {
+          notificationCount++;
+          Logger.log('  ✓ 符合條件！會收到通知（' + shiftType + '人員，不論明天是否休假）');
+        } else if (shiftType === '夜班') {
+          Logger.log('  ⊗ 夜班人員（在早上收到今天的通知）');
+        } else {
+          Logger.log('  ⊗ 無法判斷班別類型');
+        }
+      }
+      Logger.log('');
+    }
+
+    Logger.log('========================================');
+    Logger.log('【會收到晚上通知的用戶】');
+    Logger.log('---');
+
+    let displayCount = 0;
     for (let i = 1; i < data.length; i++) {
       const userId = data[i][0];
       const name = data[i][1];
@@ -1671,13 +1810,14 @@ function testEveningNotifications() {
       }
 
       if (mode === '簡化') {
-        notificationCount++;
-        Logger.log(notificationCount + '. ' + name + ' - 簡化模式 (組別: ' + (group || '無') + ')');
-      } else {
-        const shift = getShiftForDate(name, tomorrow);
-        if (shift && (shift.includes('早班') || shift.includes('中班') || shift.includes('休息'))) {
-          notificationCount++;
-          Logger.log(notificationCount + '. ' + name + ' - ' + shift + ' (組別: ' + (group || '無') + ')');
+        displayCount++;
+        Logger.log(displayCount + '. ' + name + ' - 簡化模式 (組別: ' + (group || '無') + ')');
+      } else if (mode === '完整') {
+        const shiftType = getUserShiftType(name, tomorrow);
+        if (shiftType === '早班' || shiftType === '中班') {
+          displayCount++;
+          const shift = getShiftForDate(name, tomorrow);
+          Logger.log(displayCount + '. ' + name + ' - ' + shiftType + '人員, 明天: ' + (shift || '無資料') + ' (組別: ' + (group || '無') + ')');
         }
       }
     }
