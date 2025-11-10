@@ -635,6 +635,7 @@ function handleBindUser(userId, message) {
   if (mode === '完整') {
     reply += `\n你可以使用以下命令：\n`;
     reply += `• 明天上班嗎\n`;
+    reply += `• 今天上班嗎\n`;
     reply += `• 本週班表\n`;
     reply += `• 同班人員\n`;
   } else {
@@ -901,11 +902,11 @@ function handleCheckMonthHolidays(userId) {
 
   const holidays = getUserHolidays(user.name);
   if (holidays.length === 0) {
-    return '你還沒有設置休息日。\n例如：休息日 11/3,11/10,11/17';
+    return '你還沒有設置休假日。\n例如：休假日 11/3,11/10,11/17';
   }
 
   const today = new Date();
-  let reply = `📅 你的休息日：\n\n`;
+  let reply = `📅 你的休駕日：\n\n`;
 
   holidays.forEach(h => {
     const hDate = new Date(h);
