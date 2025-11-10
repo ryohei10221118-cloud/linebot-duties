@@ -1528,10 +1528,58 @@ function testMorningNotifications() {
     const today = new Date();
     Logger.log('測試日期：' + today.toLocaleDateString('zh-TW'));
     Logger.log('');
-    Logger.log('以下用戶會收到早上通知（夜班）：');
-    Logger.log('---');
 
+    // 先顯示所有用戶資料
+    Logger.log('【所有用戶資料】');
+    for (let i = 1; i < data.length; i++) {
+      const userId = data[i][0];
+      const name = data[i][1];
+      const mode = data[i][2];
+      const group = data[i][3];
+      Logger.log((i) + '. userId=' + userId + ', name=' + name + ', mode=' + mode + ', group=' + group);
+    }
+    Logger.log('');
+
+    Logger.log('【檢查每個用戶的班別】');
     let notificationCount = 0;
+
+    for (let i = 1; i < data.length; i++) {
+      const userId = data[i][0];
+      const name = data[i][1];
+      const mode = data[i][2];
+      const group = data[i][3];
+
+      Logger.log('--- 檢查用戶 ' + i + ': ' + name + ' ---');
+
+      if (!userId || !name) {
+        Logger.log('⊗ 跳過：userId 或 name 為空');
+        continue;
+      }
+
+      Logger.log('  模式：' + mode);
+
+      if (mode === '完整') {
+        Logger.log('  → 查詢班別中...');
+        const shift = getShiftForDate(name, today);
+        Logger.log('  → 返回班別：「' + shift + '」');
+
+        if (shift && shift.includes('夜班')) {
+          notificationCount++;
+          Logger.log('  ✓ 符合條件！會收到通知');
+        } else if (!shift) {
+          Logger.log('  ⊗ 沒有班別資料');
+        } else {
+          Logger.log('  ⊗ 班別不包含「夜班」');
+        }
+      } else {
+        Logger.log('  ⊗ 跳過：不是完整模式（早上只通知完整模式的夜班）');
+      }
+      Logger.log('');
+    }
+
+    Logger.log('========================================');
+    Logger.log('【會收到早上通知的用戶】');
+    Logger.log('---');
 
     for (let i = 1; i < data.length; i++) {
       const userId = data[i][0];
@@ -1546,8 +1594,7 @@ function testMorningNotifications() {
       if (mode === '完整') {
         const shift = getShiftForDate(name, today);
         if (shift && shift.includes('夜班')) {
-          notificationCount++;
-          Logger.log(notificationCount + '. ' + name + ' - ' + shift + ' (組別: ' + (group || '無') + ')');
+          Logger.log((notificationCount > 0 ? notificationCount : '') + ' ' + name + ' - ' + shift + ' (組別: ' + (group || '無') + ')');
         }
       }
     }
