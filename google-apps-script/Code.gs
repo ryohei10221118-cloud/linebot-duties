@@ -1318,7 +1318,7 @@ function pushMessage(userId, message) {
 // ==================== 定時通知 ====================
 
 /**
- * 每天早上 9:00 執行 - 通知夜班
+ * 每天早上 9:00 執行 - 通知所有完整模式用戶今天的班別
  */
 function sendMorningNotifications() {
   try {
@@ -1364,16 +1364,14 @@ function sendMorningNotifications() {
 
         const user = { userId, name, mode, group };
 
-        // 只通知完整模式中今天上夜班的人
+        // 通知完整模式中所有人今天的班別（包括夜班、早班、中班、休假等）
         // 簡化模式的人統一在晚上 9 點收到明天的通知
         if (mode === '完整') {
+          const message = checkFullMode(user, today);
+          pushMessage(userId, message.replace('明天', '今天'));
+          notificationCount++;
           const shift = getShiftForDate(name, today);
-          if (shift && shift.includes('夜班')) {
-            const message = checkFullMode(user, today);
-            pushMessage(userId, message.replace('明天', '今天'));
-            notificationCount++;
-            Logger.log('✓ 已通知 ' + name + ' (夜班)');
-          }
+          Logger.log('✓ 已通知 ' + name + ' (' + (shift || '無班別資料') + ')');
         }
       } catch (userError) {
         errorCount++;
@@ -1562,17 +1560,10 @@ function testMorningNotifications() {
         Logger.log('  → 查詢班別中...');
         const shift = getShiftForDate(name, today);
         Logger.log('  → 返回班別：「' + shift + '」');
-
-        if (shift && shift.includes('夜班')) {
-          notificationCount++;
-          Logger.log('  ✓ 符合條件！會收到通知');
-        } else if (!shift) {
-          Logger.log('  ⊗ 沒有班別資料');
-        } else {
-          Logger.log('  ⊗ 班別不包含「夜班」');
-        }
+        notificationCount++;
+        Logger.log('  ✓ 符合條件！會收到通知（完整模式所有人都會收到今天的班別通知）');
       } else {
-        Logger.log('  ⊗ 跳過：不是完整模式（早上只通知完整模式的夜班）');
+        Logger.log('  ⊗ 跳過：不是完整模式（早上只通知完整模式，簡化模式在晚上通知）');
       }
       Logger.log('');
     }
@@ -1581,6 +1572,7 @@ function testMorningNotifications() {
     Logger.log('【會收到早上通知的用戶】');
     Logger.log('---');
 
+    let displayCount = 0;
     for (let i = 1; i < data.length; i++) {
       const userId = data[i][0];
       const name = data[i][1];
@@ -1592,10 +1584,9 @@ function testMorningNotifications() {
       }
 
       if (mode === '完整') {
+        displayCount++;
         const shift = getShiftForDate(name, today);
-        if (shift && shift.includes('夜班')) {
-          Logger.log((notificationCount > 0 ? notificationCount : '') + ' ' + name + ' - ' + shift + ' (組別: ' + (group || '無') + ')');
-        }
+        Logger.log(displayCount + '. ' + name + ' - ' + (shift || '無班別資料') + ' (組別: ' + (group || '無') + ')');
       }
     }
 
