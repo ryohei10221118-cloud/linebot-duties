@@ -993,35 +993,60 @@ function getShiftForDate(name, date) {
   const targetMonth = date.getMonth();  // 0-11
   const targetDate = date.getDate();    // 1-31
 
+  Logger.log('🔍 尋找日期：' + (targetMonth + 1) + '/' + targetDate);
+
   for (let col = 2; col < headers.length; col++) {  // 從 C 列開始（index 2）
     const cellValue = headers[col];
 
     // 檢查是否為 Date 物件
     if (cellValue instanceof Date) {
       if (cellValue.getMonth() === targetMonth && cellValue.getDate() === targetDate) {
+        Logger.log('✓ 找到日期在列 ' + col + ' (Date 物件)');
         dateCol = col;
         break;
       }
     }
+    // 也檢查字串格式的日期（例如 "11/10" 或 "11/9"）
+    else if (cellValue && typeof cellValue === 'string') {
+      const dateMatch = cellValue.match(/^(\d{1,2})\/(\d{1,2})$/);
+      if (dateMatch) {
+        const month = parseInt(dateMatch[1]);
+        const day = parseInt(dateMatch[2]);
+        if (month === targetMonth + 1 && day === targetDate) {
+          Logger.log('✓ 找到日期在列 ' + col + ' (字串格式: ' + cellValue + ')');
+          dateCol = col;
+          break;
+        }
+      }
+    }
   }
 
-  if (dateCol === -1) return '';
+  if (dateCol === -1) {
+    Logger.log('❌ 找不到日期列');
+    return '';
+  }
 
   // 2. 從 B 列找到員工姓名對應的行
   let nameRow = -1;
   for (let row = 2; row < data.length; row++) {  // 從第 3 行開始（跳過標題）
     const cellName = data[row][1];  // B 列（index 1）
     if (cellName && cellName.toString().trim() === name) {
+      Logger.log('✓ 找到員工 ' + name + ' 在第 ' + (row + 1) + ' 行');
       nameRow = row;
       break;
     }
   }
 
-  if (nameRow === -1) return '';
+  if (nameRow === -1) {
+    Logger.log('❌ 找不到員工：' + name);
+    return '';
+  }
 
     // 3. 返回該員工在該日期的班別
     const shift = data[nameRow][dateCol];
-    return shift ? classifyShift(shift) : '';
+    const classified = shift ? classifyShift(shift) : '';
+    Logger.log('📅 ' + name + ' 的班別：原始=' + shift + ', 分類=' + classified);
+    return classified;
   } catch (error) {
     Logger.log('❌ getShiftForDate 發生錯誤：' + error.message);
     return '';
