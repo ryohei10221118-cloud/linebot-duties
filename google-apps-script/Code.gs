@@ -1282,42 +1282,40 @@ function getAllEmployees() {
  */
 function getWeatherForecast(city, date) {
   try {
+    // 檢查縣市參數
+    if (!city || typeof city !== 'string' || city.trim() === '') {
+      Logger.log('⚠️ 天氣查詢：縣市參數無效 - ' + city);
+      city = DEFAULT_CITY; // 使用預設縣市
+      Logger.log('使用預設縣市：' + DEFAULT_CITY);
+    }
+
+    Logger.log('🌤️ 查詢天氣：' + city);
+
     // 中央氣象署 36 小時天氣預報 API
     const apiUrl = `https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-C0032-001?Authorization=${WEATHER_API_KEY}&locationName=${encodeURIComponent(city)}`;
 
     const response = UrlFetchApp.fetch(apiUrl);
     const data = JSON.parse(response.getContentText());
 
-    // 檢查 API 回應是否成功
-    if (!data.success || !data.records || !data.records.location || data.records.location.length === 0) {
-      Logger.log('⚠️ 天氣 API 回應異常: ' + JSON.stringify(data));
+    // 檢查 API 回應是否成功（注意：success 是字串 "true"，不是布林值）
+    if (data.success !== 'true' && data.success !== true) {
+      Logger.log('⚠️ 天氣 API 失敗 - success: ' + data.success);
+      return '';
+    }
+
+    // 檢查是否有資料
+    if (!data.records || !data.records.location || data.records.location.length === 0) {
+      Logger.log('⚠️ 天氣 API 找不到縣市「' + city + '」的資料');
+      Logger.log('API 回應: ' + JSON.stringify(data));
       return ''; // 靜默失敗，不顯示天氣
     }
 
     const location = data.records.location[0];
     const weatherElements = location.weatherElement;
 
-    // 找到最接近目標日期的時段
-    const targetDate = new Date(date);
-    targetDate.setHours(0, 0, 0, 0);
-
-    let closestTimeData = null;
-    let minDiff = Infinity;
-
-    // 取得第一個時段的資料（通常是未來 0-12 小時）
-    for (let element of weatherElements) {
-      if (element.time && element.time.length > 0) {
-        for (let timeData of element.time) {
-          const startTime = new Date(timeData.startTime);
-          startTime.setHours(0, 0, 0, 0);
-
-          const diff = Math.abs(targetDate - startTime);
-          if (diff < minDiff) {
-            minDiff = diff;
-          }
-        }
-        break;
-      }
+    if (!weatherElements || weatherElements.length === 0) {
+      Logger.log('⚠️ 天氣 API 沒有天氣要素資料');
+      return '';
     }
 
     // 提取天氣資訊
@@ -1328,9 +1326,9 @@ function getWeatherForecast(city, date) {
 
     for (let element of weatherElements) {
       const elementName = element.elementName;
-      const timeData = element.time[0]; // 使用第一個時段
+      const timeData = element.time && element.time.length > 0 ? element.time[0] : null;
 
-      if (!timeData) continue;
+      if (!timeData || !timeData.parameter) continue;
 
       if (elementName === 'Wx') {
         wx = timeData.parameter.parameterName;
@@ -1341,6 +1339,12 @@ function getWeatherForecast(city, date) {
       } else if (elementName === 'PoP') {
         pop = timeData.parameter.parameterName;
       }
+    }
+
+    // 檢查是否成功取得所有必要資訊
+    if (!wx || !minT || !maxT || !pop) {
+      Logger.log('⚠️ 天氣資訊不完整 - wx:' + wx + ' minT:' + minT + ' maxT:' + maxT + ' pop:' + pop);
+      return '';
     }
 
     // 根據天氣現象選擇 emoji
@@ -1356,6 +1360,7 @@ function getWeatherForecast(city, date) {
     weatherInfo += `${wx} ${minT}-${maxT}°C\n`;
     weatherInfo += `降雨機率 ${pop}%`;
 
+    Logger.log('✓ 天氣查詢成功：' + city + ' - ' + wx);
     return weatherInfo;
 
   } catch (error) {
@@ -1594,12 +1599,13 @@ function sendMorningNotifications() {
         const name = data[i][1];
         const mode = data[i][2];
         const group = data[i][3];
+        const city = data[i][4] || DEFAULT_CITY; // 如果沒設定，使用預設縣市
 
         if (!userId || !name) {
           continue;
         }
 
-        const user = { userId, name, mode, group };
+        const user = { userId, name, mode, group, city };
 
         // 早上只通知夜班人員（不管今天是否休假）
         // 早班/中班的人在前一天晚上收到通知
@@ -1677,12 +1683,13 @@ function sendEveningNotifications() {
         const name = data[i][1];
         const mode = data[i][2];
         const group = data[i][3];
+        const city = data[i][4] || DEFAULT_CITY; // 如果沒設定，使用預設縣市
 
         if (!userId || !name) {
           continue;
         }
 
-        const user = { userId, name, mode, group };
+        const user = { userId, name, mode, group, city };
 
         if (mode === '簡化') {
           const message = checkSimpleMode(user, tomorrow);
