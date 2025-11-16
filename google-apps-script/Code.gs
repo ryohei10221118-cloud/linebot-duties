@@ -1388,7 +1388,7 @@ function getWeatherForecast(city, date) {
     else if (wx.includes('雷')) weatherEmoji = '⛈️';
 
     // 組合天氣資訊（加入城市名稱）
-    let weatherInfo = `\n${weatherEmoji} ${city}天氣預報\n`;
+    let weatherInfo = `\n\n${weatherEmoji} ${city}天氣預報\n`;
     weatherInfo += `${wx} ${minT}-${maxT}°C\n`;
     weatherInfo += `降雨機率 ${pop}%`;
 
