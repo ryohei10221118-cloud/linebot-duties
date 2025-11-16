@@ -22,6 +22,66 @@ const SHEET_SCHEDULE = '完整班表';
 const SHEET_GROUPS = '組別配置';
 const SHEET_HOLIDAYS = '休息日記錄';
 
+// ==================== 配置驗證與存取輔助函數 ====================
+
+/**
+ * 安全地取得試算表，帶有自動重試機制
+ * 用於處理 Google Apps Script 的間歇性服務問題
+ * @param {number} maxRetries - 最大重試次數（預設 3 次）
+ * @returns {Spreadsheet|null} 試算表物件，失敗則回傳 null
+ */
+function getSpreadsheetWithRetry(maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+      if (spreadsheet) {
+        return spreadsheet;
+      }
+      Logger.log('⚠️ 嘗試 ' + attempt + '/' + maxRetries + '：SpreadsheetApp.openById 回傳 null');
+    } catch (error) {
+      Logger.log('⚠️ 嘗試 ' + attempt + '/' + maxRetries + ' 失敗：' + error.message);
+    }
+
+    // 如果不是最後一次嘗試，等待後重試（exponential backoff）
+    if (attempt < maxRetries) {
+      const waitTime = Math.pow(2, attempt - 1) * 1000; // 1s, 2s, 4s
+      Utilities.sleep(waitTime);
+      Logger.log('等待 ' + waitTime + 'ms 後重試...');
+    }
+  }
+
+  Logger.log('❌ 已嘗試 ' + maxRetries + ' 次，仍無法存取試算表');
+  return null;
+}
+
+/**
+ * 驗證 SPREADSHEET_ID 配置是否正確
+ * @returns {Object} { valid: boolean, error: string, spreadsheet: Spreadsheet }
+ */
+function validateSpreadsheetConfig() {
+  // 檢查是否為預設值
+  if (SPREADSHEET_ID === 'YOUR_SPREADSHEET_ID_HERE' || !SPREADSHEET_ID) {
+    return {
+      valid: false,
+      error: 'SPREADSHEET_ID 尚未設置。請在 Code.gs 第 17 行填入正確的 Google Sheets ID。'
+    };
+  }
+
+  // 嘗試連接試算表（帶重試機制）
+  const spreadsheet = getSpreadsheetWithRetry();
+  if (!spreadsheet) {
+    return {
+      valid: false,
+      error: '無法存取試算表（已重試 3 次）。\n可能原因：\n1. SPREADSHEET_ID 不正確\n2. 該試算表不存在\n3. 腳本執行帳號沒有存取權限\n4. Google 服務暫時性問題'
+    };
+  }
+
+  return {
+    valid: true,
+    spreadsheet: spreadsheet
+  };
+}
+
 // ==================== 診斷測試函數 ====================
 
 /**
@@ -511,7 +571,7 @@ function handleTextMessage(event) {
   else if (message === '同班人員' || message === '同班人员') {
     replyText = handleCheckCoworkers(userId);
   }
-  else if (message === '本月休息日') {
+  else if (message === '本月休假日') {
     replyText = handleCheckMonthHolidays(userId);
   }
   else if (message === '幫助' || message === '帮助' || message === 'help') {
@@ -531,16 +591,25 @@ function handleTextMessage(event) {
  * 系統會自動檢查是否在完整班表中，來決定使用哪種模式
  */
 function handleBindUser(userId, message) {
-  const name = message.replace(/^綁定\s*/, '').trim();
+  try {
+    const name = message.replace(/^綁定\s*/, '').trim();
 
-  // 檢查是否在完整班表中
-  const allEmployees = getAllEmployees();
-  const isInSchedule = allEmployees.includes(name);
+    // 檢查是否在完整班表中
+    const allEmployees = getAllEmployees();
+    const isInSchedule = allEmployees.includes(name);
 
-  // 自動判斷模式
-  const mode = isInSchedule ? '完整' : '簡化';
+    // 自動判斷模式
+    const mode = isInSchedule ? '完整' : '簡化';
 
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_USERS);
+    const spreadsheet = getSpreadsheetWithRetry();
+    if (!spreadsheet) {
+      return '❌ 系統暫時無法存取資料，請稍後再試。';
+    }
+
+    const sheet = spreadsheet.getSheetByName(SHEET_USERS);
+    if (!sheet) {
+      return '❌ 系統配置錯誤，請聯絡管理員。';
+    }
 
   // 檢查是否已經綁定
   const data = sheet.getDataRange().getValues();
@@ -566,6 +635,7 @@ function handleBindUser(userId, message) {
   if (mode === '完整') {
     reply += `\n你可以使用以下命令：\n`;
     reply += `• 明天上班嗎\n`;
+    reply += `• 今天上班嗎\n`;
     reply += `• 本週班表\n`;
     reply += `• 同班人員\n`;
   } else {
@@ -575,7 +645,11 @@ function handleBindUser(userId, message) {
     reply += `設置後系統會每天自動提醒你！`;
   }
 
-  return reply;
+    return reply;
+  } catch (error) {
+    Logger.log('❌ handleBindUser 發生錯誤：' + error.message);
+    return '❌ 綁定失敗，系統暫時無法處理，請稍後再試。';
+  }
 }
 
 /**
@@ -737,7 +811,7 @@ function handleCheckWeek(userId) {
   }
 
   if (user.mode === '簡化') {
-    return '簡化模式不支援本週班表查詢。\n可以查看「本月休息日」。';
+    return '簡化模式不支援本週班表查詢。\n可以查看「本月休假日」。';
   }
 
   // 獲取本週日期範圍
@@ -814,7 +888,7 @@ function handleCheckCoworkers(userId) {
 }
 
 /**
- * 查詢本月休息日
+ * 查詢本月休假日
  */
 function handleCheckMonthHolidays(userId) {
   const user = getUserInfo(userId);
@@ -828,7 +902,7 @@ function handleCheckMonthHolidays(userId) {
 
   const holidays = getUserHolidays(user.name);
   if (holidays.length === 0) {
-    return '你還沒有設置休息日。\n例如：休息日 11/3,11/10,11/17';
+    return '你還沒有設置休假日。\n例如：休假日 11/3,11/10,11/17';
   }
 
   const today = new Date();
@@ -895,11 +969,90 @@ function getUserHolidays(name) {
 }
 
 /**
+ * 判斷用戶的主要班別類型（夜班/早班/中班）
+ * 通過檢查本月前後幾天的班別來判斷
+ */
+function getUserShiftType(name, date) {
+  try {
+    const spreadsheet = getSpreadsheetWithRetry();
+    if (!spreadsheet) {
+      return null;
+    }
+
+    const sheet = spreadsheet.getSheetByName(SHEET_SCHEDULE);
+    if (!sheet) {
+      return null;
+    }
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length === 0) return null;
+
+    // 找到員工的行
+    let nameRow = -1;
+    for (let row = 2; row < data.length; row++) {
+      const cellName = data[row][1];
+      if (cellName && cellName.toString().trim() === name) {
+        nameRow = row;
+        break;
+      }
+    }
+
+    if (nameRow === -1) return null;
+
+    // 檢查本月所有日期的班別（取前後15天的範圍）
+    const nightShiftCount = 0;
+    const morningShiftCount = 0;
+    const afternoonShiftCount = 0;
+
+    let nightCount = 0;
+    let morningCount = 0;
+    let afternoonCount = 0;
+
+    // 檢查這一行所有的班別代碼
+    for (let col = 2; col < data[nameRow].length; col++) {
+      const shiftCode = data[nameRow][col];
+      if (shiftCode && typeof shiftCode === 'string') {
+        const code = shiftCode.toString().trim().toUpperCase();
+        if (code.startsWith('N')) nightCount++;
+        else if (code.startsWith('M')) morningCount++;
+        else if (code.startsWith('A')) afternoonCount++;
+      }
+    }
+
+    // 返回最多的班別類型
+    if (nightCount > 0 && nightCount >= morningCount && nightCount >= afternoonCount) {
+      return '夜班';
+    } else if (morningCount > 0 && morningCount >= afternoonCount) {
+      return '早班';
+    } else if (afternoonCount > 0) {
+      return '中班';
+    }
+
+    return null;
+  } catch (error) {
+    Logger.log('❌ getUserShiftType 發生錯誤：' + error.message);
+    return null;
+  }
+}
+
+/**
  * 查詢指定日期的班別
  */
 function getShiftForDate(name, date) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_SCHEDULE);
-  const data = sheet.getDataRange().getValues();
+  try {
+    const spreadsheet = getSpreadsheetWithRetry();
+    if (!spreadsheet) {
+      Logger.log('❌ getShiftForDate: 無法存取試算表');
+      return '';
+    }
+
+    const sheet = spreadsheet.getSheetByName(SHEET_SCHEDULE);
+    if (!sheet) {
+      Logger.log('❌ getShiftForDate: 找不到工作表 ' + SHEET_SCHEDULE);
+      return '';
+    }
+
+    const data = sheet.getDataRange().getValues();
 
   if (data.length === 0) return '';
 
@@ -910,35 +1063,64 @@ function getShiftForDate(name, date) {
   const targetMonth = date.getMonth();  // 0-11
   const targetDate = date.getDate();    // 1-31
 
+  Logger.log('🔍 尋找日期：' + (targetMonth + 1) + '/' + targetDate);
+
   for (let col = 2; col < headers.length; col++) {  // 從 C 列開始（index 2）
     const cellValue = headers[col];
 
     // 檢查是否為 Date 物件
     if (cellValue instanceof Date) {
       if (cellValue.getMonth() === targetMonth && cellValue.getDate() === targetDate) {
+        Logger.log('✓ 找到日期在列 ' + col + ' (Date 物件)');
         dateCol = col;
         break;
       }
     }
+    // 也檢查字串格式的日期（例如 "11/10" 或 "11/9"）
+    else if (cellValue && typeof cellValue === 'string') {
+      const dateMatch = cellValue.match(/^(\d{1,2})\/(\d{1,2})$/);
+      if (dateMatch) {
+        const month = parseInt(dateMatch[1]);
+        const day = parseInt(dateMatch[2]);
+        if (month === targetMonth + 1 && day === targetDate) {
+          Logger.log('✓ 找到日期在列 ' + col + ' (字串格式: ' + cellValue + ')');
+          dateCol = col;
+          break;
+        }
+      }
+    }
   }
 
-  if (dateCol === -1) return '';
+  if (dateCol === -1) {
+    Logger.log('❌ 找不到日期列');
+    return '';
+  }
 
   // 2. 從 B 列找到員工姓名對應的行
   let nameRow = -1;
   for (let row = 2; row < data.length; row++) {  // 從第 3 行開始（跳過標題）
     const cellName = data[row][1];  // B 列（index 1）
     if (cellName && cellName.toString().trim() === name) {
+      Logger.log('✓ 找到員工 ' + name + ' 在第 ' + (row + 1) + ' 行');
       nameRow = row;
       break;
     }
   }
 
-  if (nameRow === -1) return '';
+  if (nameRow === -1) {
+    Logger.log('❌ 找不到員工：' + name);
+    return '';
+  }
 
-  // 3. 返回該員工在該日期的班別
-  const shift = data[nameRow][dateCol];
-  return shift ? classifyShift(shift) : '';
+    // 3. 返回該員工在該日期的班別
+    const shift = data[nameRow][dateCol];
+    const classified = shift ? classifyShift(shift) : '';
+    Logger.log('📅 ' + name + ' 的班別：原始=' + shift + ', 分類=' + classified);
+    return classified;
+  } catch (error) {
+    Logger.log('❌ getShiftForDate 發生錯誤：' + error.message);
+    return '';
+  }
 }
 
 /**
@@ -979,8 +1161,13 @@ function getAllEmployees() {
   }
 
   try {
-    const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_SCHEDULE);
+    const spreadsheet = getSpreadsheetWithRetry();
+    if (!spreadsheet) {
+      Logger.log('❌ 錯誤：無法存取試算表（已重試 3 次）');
+      throw new Error('無法存取試算表');
+    }
 
+    const sheet = spreadsheet.getSheetByName(SHEET_SCHEDULE);
     if (!sheet) {
       Logger.log('❌ 錯誤：找不到工作表 "' + SHEET_SCHEDULE + '"');
       Logger.log('請確認你的 Google Sheets 中有一個名為 "完整班表" 的工作表');
@@ -1040,9 +1227,9 @@ function checkSimpleMode(user, date) {
   let reply = `📅 明天 ${date.getMonth() + 1}/${date.getDate()} (${dayName})\n\n`;
 
   if (isHoliday) {
-    reply += `😴 休息日\n好好休息～`;
+    reply += `😴 休假啦\n好好休息～`;
   } else {
-    reply += `💼 需要上班\n早點睡，明天加油！`;
+    reply += `💼 需要上班\n早點睡，上班加油！`;
   }
 
   return reply;
@@ -1058,7 +1245,7 @@ function checkFullMode(user, date) {
   let reply = `📅 明天 ${date.getMonth() + 1}/${date.getDate()} (${dayName})\n\n`;
 
   if (!shift || shift.includes('休息') || shift.includes('休假')) {
-    reply += `😴 休息\n好好休息～`;
+    reply += `😴 休假\n好好休息～`;
   } else {
     reply += `${shift}\n`;
 
@@ -1094,7 +1281,7 @@ function checkFullMode(user, date) {
       }
     }
 
-    reply += `\n早點睡，明天加油！`;
+    reply += `\n早點睡，上班加油！`;
   }
 
   return reply;
@@ -1106,18 +1293,16 @@ function checkFullMode(user, date) {
 function getHelpMessage() {
   return `🤖 班表查詢 Bot 使用說明\n\n` +
     `📝 基礎命令：\n` +
-    `• 綁定 Sunny - 綁定身份（系統自動判斷模式）\n` +
+    `• 綁定xxx - 綁定身份\n` +
     `• 幫助 - 顯示此幫助\n\n` +
     `📅 查詢命令：\n` +
     `• 今天上班嗎 - 查詢今天的班別\n` +
     `• 明天上班嗎 - 查詢明天的班別\n` +
-    `• 查詢 11/9 或 查詢11/9 - 查詢指定日期的班別\n` +
+    `• 查詢11/9 - 查詢指定日期的班別\n` +
     `• 本週班表 - 查詢本週班表\n\n` +
-    `👥 完整模式（在班表中）：\n` +
-    `• 同班人員 - 查詢明天的同班人員（自動顯示）\n\n` +
     `😴 簡化模式（不在班表中）：\n` +
-    `• 休息日 11/3,11/10 - 設定休息日\n` +
-    `• 本月休息日 - 查看本月休息日\n\n` +
+    `• 休假日 11/3,11/10 - 設定休假日\n` +
+    `• 本月休假日 - 查看本月休假日\n\n` +
     `💡 提示：命令中的空格可有可無`;
 }
 
@@ -1134,9 +1319,9 @@ function classifyShift(shiftCode) {
     return code === 'SL' ? '🤒 病假' : '🏖️ 休假';
   }
 
-  if (code === 'O') return '😴 休息';
-  if (code === 'P') return '🏖️ 休假';
-  if (code === 'BTD') return '✈️ 出差';
+  if (code === 'O') return '😴 休假';
+  if (code === 'P') return '🏖️ 特休';
+  if (code === 'BTD') return '🎂 生日假';
 
   // 夜班：所有 N 開頭
   if (code.startsWith('N')) return `🌙 夜班 ${code}`;
@@ -1203,31 +1388,84 @@ function pushMessage(userId, message) {
 // ==================== 定時通知 ====================
 
 /**
- * 每天早上 9:00 執行 - 通知夜班
+ * 每天早上 9:00 執行 - 通知今天上夜班的人
  */
 function sendMorningNotifications() {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_USERS);
-  const data = sheet.getDataRange().getValues();
+  try {
+    Logger.log('========================================');
+    Logger.log('開始執行早上通知 - ' + new Date().toLocaleString('zh-TW'));
+    Logger.log('========================================');
 
-  const today = new Date();
+    // 驗證配置
+    const configCheck = validateSpreadsheetConfig();
+    if (!configCheck.valid) {
+      Logger.log('❌ 配置驗證失敗：');
+      Logger.log(configCheck.error);
+      Logger.log('');
+      Logger.log('請修正配置後再試。');
+      return;
+    }
+    Logger.log('✓ 配置驗證通過');
 
-  for (let i = 1; i < data.length; i++) {
-    const userId = data[i][0];
-    const name = data[i][1];
-    const mode = data[i][2];
-    const group = data[i][3];
+    // 取得用戶資料
+    const sheet = configCheck.spreadsheet.getSheetByName(SHEET_USERS);
+    if (!sheet) {
+      Logger.log('❌ 找不到工作表：' + SHEET_USERS);
+      return;
+    }
 
-    const user = { userId, name, mode, group };
+    const data = sheet.getDataRange().getValues();
+    Logger.log('✓ 成功讀取用戶資料，共 ' + (data.length - 1) + ' 位用戶');
 
-    // 只通知完整模式中今天上夜班的人
-    // 簡化模式的人統一在晚上 9 點收到明天的通知
-    if (mode === '完整') {
-      const shift = getShiftForDate(name, today);
-      if (shift && shift.includes('夜班')) {
-        const message = checkFullMode(user, today);
-        pushMessage(userId, message.replace('明天', '今天'));
+    const today = new Date();
+    let notificationCount = 0;
+    let errorCount = 0;
+
+    for (let i = 1; i < data.length; i++) {
+      try {
+        const userId = data[i][0];
+        const name = data[i][1];
+        const mode = data[i][2];
+        const group = data[i][3];
+
+        if (!userId || !name) {
+          continue;
+        }
+
+        const user = { userId, name, mode, group };
+
+        // 早上只通知夜班人員（不管今天是否休假）
+        // 早班/中班的人在前一天晚上收到通知
+        // 簡化模式的人統一在晚上 9 點收到明天的通知
+        if (mode === '完整') {
+          const shiftType = getUserShiftType(name, today);
+          if (shiftType === '夜班') {
+            const message = checkFullMode(user, today);
+            pushMessage(userId, message.replace('明天', '今天'));
+            notificationCount++;
+            const shift = getShiftForDate(name, today);
+            Logger.log('✓ 已通知 ' + name + ' (夜班人員, 今天: ' + (shift || '無資料') + ')');
+          }
+        }
+      } catch (userError) {
+        errorCount++;
+        Logger.log('❌ 處理用戶 ' + (data[i][1] || '未知') + ' 時發生錯誤：' + userError.message);
       }
     }
+
+    Logger.log('');
+    Logger.log('早上通知完成：');
+    Logger.log('  成功發送：' + notificationCount + ' 則');
+    Logger.log('  發生錯誤：' + errorCount + ' 則');
+    Logger.log('========================================');
+
+  } catch (error) {
+    Logger.log('');
+    Logger.log('❌❌❌ 早上通知執行失敗 ❌❌❌');
+    Logger.log('錯誤訊息：' + error.message);
+    Logger.log('錯誤堆疊：');
+    Logger.log(error.stack);
+    Logger.log('========================================');
   }
 }
 
@@ -1235,37 +1473,371 @@ function sendMorningNotifications() {
  * 每天晚上 21:00 執行 - 通知早班/中班
  */
 function sendEveningNotifications() {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_USERS);
-  const data = sheet.getDataRange().getValues();
+  try {
+    Logger.log('========================================');
+    Logger.log('開始執行晚上通知 - ' + new Date().toLocaleString('zh-TW'));
+    Logger.log('========================================');
 
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
+    // 驗證配置
+    const configCheck = validateSpreadsheetConfig();
+    if (!configCheck.valid) {
+      Logger.log('❌ 配置驗證失敗：');
+      Logger.log(configCheck.error);
+      Logger.log('');
+      Logger.log('請修正配置後再試。');
+      return;
+    }
+    Logger.log('✓ 配置驗證通過');
 
-  for (let i = 1; i < data.length; i++) {
-    const userId = data[i][0];
-    const name = data[i][1];
-    const mode = data[i][2];
-    const group = data[i][3];
+    // 取得用戶資料
+    const sheet = configCheck.spreadsheet.getSheetByName(SHEET_USERS);
+    if (!sheet) {
+      Logger.log('❌ 找不到工作表：' + SHEET_USERS);
+      return;
+    }
 
-    const user = { userId, name, mode, group };
+    const data = sheet.getDataRange().getValues();
+    Logger.log('✓ 成功讀取用戶資料，共 ' + (data.length - 1) + ' 位用戶');
 
-    if (mode === '簡化') {
-      const message = checkSimpleMode(user, tomorrow);
-      pushMessage(userId, message);
-    } else {
-      const shift = getShiftForDate(name, tomorrow);
-      if (shift && (shift.includes('早班') || shift.includes('中班') || shift.includes('休息'))) {
-        const message = checkFullMode(user, tomorrow);
-        pushMessage(userId, message);
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    let notificationCount = 0;
+    let errorCount = 0;
+
+    for (let i = 1; i < data.length; i++) {
+      try {
+        const userId = data[i][0];
+        const name = data[i][1];
+        const mode = data[i][2];
+        const group = data[i][3];
+
+        if (!userId || !name) {
+          continue;
+        }
+
+        const user = { userId, name, mode, group };
+
+        if (mode === '簡化') {
+          const message = checkSimpleMode(user, tomorrow);
+          pushMessage(userId, message);
+          notificationCount++;
+          Logger.log('✓ 已通知 ' + name + ' (簡化模式)');
+        } else if (mode === '完整') {
+          // 晚上通知早班/中班人員（不管明天是否休假）
+          const shiftType = getUserShiftType(name, tomorrow);
+          if (shiftType === '早班' || shiftType === '中班') {
+            const message = checkFullMode(user, tomorrow);
+            pushMessage(userId, message);
+            notificationCount++;
+            const shift = getShiftForDate(name, tomorrow);
+            Logger.log('✓ 已通知 ' + name + ' (' + shiftType + '人員, 明天: ' + (shift || '無資料') + ')');
+          }
+        }
+      } catch (userError) {
+        errorCount++;
+        Logger.log('❌ 處理用戶 ' + (data[i][1] || '未知') + ' 時發生錯誤：' + userError.message);
       }
     }
+
+    Logger.log('');
+    Logger.log('晚上通知完成：');
+    Logger.log('  成功發送：' + notificationCount + ' 則');
+    Logger.log('  發生錯誤：' + errorCount + ' 則');
+    Logger.log('========================================');
+
+  } catch (error) {
+    Logger.log('');
+    Logger.log('❌❌❌ 晚上通知執行失敗 ❌❌❌');
+    Logger.log('錯誤訊息：' + error.message);
+    Logger.log('錯誤堆疊：');
+    Logger.log(error.stack);
+    Logger.log('========================================');
   }
 }
 
 /**
- * 測試函數 - 用於調試
+ * 🧪 測試早上通知功能
+ *
+ * 使用方法：
+ * 1. 在上方選擇函數下拉選單中選擇 "testMorningNotifications"
+ * 2. 點擊「執行」按鈕
+ * 3. 查看執行日誌（畫面下方會顯示詳細的執行過程）
+ *
+ * 這個函數會：
+ * - 驗證 SPREADSHEET_ID 配置
+ * - 模擬執行早上通知流程（但不會真的發送訊息）
+ * - 顯示哪些用戶會收到通知
  */
-function testNotification() {
-  Logger.log('Testing notifications...');
-  // 可以在這裡測試單個用戶的通知
+function testMorningNotifications() {
+  Logger.log('========================================');
+  Logger.log('🧪 測試早上通知功能');
+  Logger.log('========================================');
+  Logger.log('');
+
+  try {
+    // 驗證配置
+    const configCheck = validateSpreadsheetConfig();
+    if (!configCheck.valid) {
+      Logger.log('❌ 配置驗證失敗：');
+      Logger.log(configCheck.error);
+      Logger.log('');
+      Logger.log('請修正配置後再試。');
+      return;
+    }
+    Logger.log('✓ 配置驗證通過');
+    Logger.log('  試算表名稱：' + configCheck.spreadsheet.getName());
+    Logger.log('');
+
+    // 取得用戶資料
+    const sheet = configCheck.spreadsheet.getSheetByName(SHEET_USERS);
+    if (!sheet) {
+      Logger.log('❌ 找不到工作表：' + SHEET_USERS);
+      return;
+    }
+
+    const data = sheet.getDataRange().getValues();
+    Logger.log('✓ 成功讀取用戶資料，共 ' + (data.length - 1) + ' 位用戶');
+    Logger.log('');
+
+    const today = new Date();
+    Logger.log('測試日期：' + today.toLocaleDateString('zh-TW'));
+    Logger.log('');
+
+    // 先顯示所有用戶資料
+    Logger.log('【所有用戶資料】');
+    for (let i = 1; i < data.length; i++) {
+      const userId = data[i][0];
+      const name = data[i][1];
+      const mode = data[i][2];
+      const group = data[i][3];
+      Logger.log((i) + '. userId=' + userId + ', name=' + name + ', mode=' + mode + ', group=' + group);
+    }
+    Logger.log('');
+
+    Logger.log('【檢查每個用戶的班別】');
+    let notificationCount = 0;
+
+    for (let i = 1; i < data.length; i++) {
+      const userId = data[i][0];
+      const name = data[i][1];
+      const mode = data[i][2];
+      const group = data[i][3];
+
+      Logger.log('--- 檢查用戶 ' + i + ': ' + name + ' ---');
+
+      if (!userId || !name) {
+        Logger.log('⊗ 跳過：userId 或 name 為空');
+        continue;
+      }
+
+      Logger.log('  模式：' + mode);
+
+      if (mode === '完整') {
+        Logger.log('  → 判斷班別類型...');
+        const shiftType = getUserShiftType(name, today);
+        Logger.log('  → 班別類型：「' + (shiftType || '無法判斷') + '」');
+
+        const shift = getShiftForDate(name, today);
+        Logger.log('  → 今天班別：「' + (shift || '無資料') + '」');
+
+        if (shiftType === '夜班') {
+          notificationCount++;
+          Logger.log('  ✓ 符合條件！會收到通知（夜班人員，不論今天是否休假）');
+        } else if (shiftType === '早班' || shiftType === '中班') {
+          Logger.log('  ⊗ ' + shiftType + '人員（在前一天晚上收到明天的通知）');
+        } else {
+          Logger.log('  ⊗ 無法判斷班別類型');
+        }
+      } else {
+        Logger.log('  ⊗ 跳過：簡化模式（早上只通知完整模式的夜班人員，簡化模式在晚上通知）');
+      }
+      Logger.log('');
+    }
+
+    Logger.log('========================================');
+    Logger.log('【會收到早上通知的用戶】');
+    Logger.log('---');
+
+    let displayCount = 0;
+    for (let i = 1; i < data.length; i++) {
+      const userId = data[i][0];
+      const name = data[i][1];
+      const mode = data[i][2];
+      const group = data[i][3];
+
+      if (!userId || !name) {
+        continue;
+      }
+
+      if (mode === '完整') {
+        const shiftType = getUserShiftType(name, today);
+        if (shiftType === '夜班') {
+          displayCount++;
+          const shift = getShiftForDate(name, today);
+          Logger.log(displayCount + '. ' + name + ' (夜班人員) - 今天: ' + (shift || '無資料') + ' (組別: ' + (group || '無') + ')');
+        }
+      }
+    }
+
+    Logger.log('---');
+    Logger.log('');
+    Logger.log('總計會發送 ' + notificationCount + ' 則通知');
+    Logger.log('');
+    Logger.log('✅ 測試完成！如果要實際發送通知，請執行 sendMorningNotifications 函數');
+
+  } catch (error) {
+    Logger.log('');
+    Logger.log('❌ 測試失敗');
+    Logger.log('錯誤訊息：' + error.message);
+    Logger.log('錯誤堆疊：');
+    Logger.log(error.stack);
+  }
+
+  Logger.log('========================================');
+}
+
+/**
+ * 🧪 測試晚上通知功能
+ *
+ * 使用方法：
+ * 1. 在上方選擇函數下拉選單中選擇 "testEveningNotifications"
+ * 2. 點擊「執行」按鈕
+ * 3. 查看執行日誌
+ *
+ * 這個函數會：
+ * - 驗證 SPREADSHEET_ID 配置
+ * - 模擬執行晚上通知流程（但不會真的發送訊息）
+ * - 顯示哪些用戶會收到通知
+ */
+function testEveningNotifications() {
+  Logger.log('========================================');
+  Logger.log('🧪 測試晚上通知功能');
+  Logger.log('========================================');
+  Logger.log('');
+
+  try {
+    // 驗證配置
+    const configCheck = validateSpreadsheetConfig();
+    if (!configCheck.valid) {
+      Logger.log('❌ 配置驗證失敗：');
+      Logger.log(configCheck.error);
+      Logger.log('');
+      Logger.log('請修正配置後再試。');
+      return;
+    }
+    Logger.log('✓ 配置驗證通過');
+    Logger.log('  試算表名稱：' + configCheck.spreadsheet.getName());
+    Logger.log('');
+
+    // 取得用戶資料
+    const sheet = configCheck.spreadsheet.getSheetByName(SHEET_USERS);
+    if (!sheet) {
+      Logger.log('❌ 找不到工作表：' + SHEET_USERS);
+      return;
+    }
+
+    const data = sheet.getDataRange().getValues();
+    Logger.log('✓ 成功讀取用戶資料，共 ' + (data.length - 1) + ' 位用戶');
+    Logger.log('');
+
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    Logger.log('測試日期（明天）：' + tomorrow.toLocaleDateString('zh-TW'));
+    Logger.log('');
+
+    // 先顯示所有用戶資料
+    Logger.log('【所有用戶資料】');
+    for (let i = 1; i < data.length; i++) {
+      const userId = data[i][0];
+      const name = data[i][1];
+      const mode = data[i][2];
+      const group = data[i][3];
+      Logger.log((i) + '. userId=' + userId + ', name=' + name + ', mode=' + mode + ', group=' + group);
+    }
+    Logger.log('');
+
+    Logger.log('【檢查每個用戶的班別】');
+    let notificationCount = 0;
+
+    for (let i = 1; i < data.length; i++) {
+      const userId = data[i][0];
+      const name = data[i][1];
+      const mode = data[i][2];
+      const group = data[i][3];
+
+      Logger.log('--- 檢查用戶 ' + i + ': ' + name + ' ---');
+
+      if (!userId || !name) {
+        Logger.log('⊗ 跳過：userId 或 name 為空');
+        continue;
+      }
+
+      Logger.log('  模式：' + mode);
+
+      if (mode === '簡化') {
+        notificationCount++;
+        Logger.log('  ✓ 符合條件！會收到通知（簡化模式固定在晚上通知）');
+      } else if (mode === '完整') {
+        Logger.log('  → 判斷班別類型...');
+        const shiftType = getUserShiftType(name, tomorrow);
+        Logger.log('  → 班別類型：「' + (shiftType || '無法判斷') + '」');
+
+        const shift = getShiftForDate(name, tomorrow);
+        Logger.log('  → 明天班別：「' + (shift || '無資料') + '」');
+
+        if (shiftType === '早班' || shiftType === '中班') {
+          notificationCount++;
+          Logger.log('  ✓ 符合條件！會收到通知（' + shiftType + '人員，不論明天是否休假）');
+        } else if (shiftType === '夜班') {
+          Logger.log('  ⊗ 夜班人員（在早上收到今天的通知）');
+        } else {
+          Logger.log('  ⊗ 無法判斷班別類型');
+        }
+      }
+      Logger.log('');
+    }
+
+    Logger.log('========================================');
+    Logger.log('【會收到晚上通知的用戶】');
+    Logger.log('---');
+
+    let displayCount = 0;
+    for (let i = 1; i < data.length; i++) {
+      const userId = data[i][0];
+      const name = data[i][1];
+      const mode = data[i][2];
+      const group = data[i][3];
+
+      if (!userId || !name) {
+        continue;
+      }
+
+      if (mode === '簡化') {
+        displayCount++;
+        Logger.log(displayCount + '. ' + name + ' - 簡化模式 (組別: ' + (group || '無') + ')');
+      } else if (mode === '完整') {
+        const shiftType = getUserShiftType(name, tomorrow);
+        if (shiftType === '早班' || shiftType === '中班') {
+          displayCount++;
+          const shift = getShiftForDate(name, tomorrow);
+          Logger.log(displayCount + '. ' + name + ' - ' + shiftType + '人員, 明天: ' + (shift || '無資料') + ' (組別: ' + (group || '無') + ')');
+        }
+      }
+    }
+
+    Logger.log('---');
+    Logger.log('');
+    Logger.log('總計會發送 ' + notificationCount + ' 則通知');
+    Logger.log('');
+    Logger.log('✅ 測試完成！如果要實際發送通知，請執行 sendEveningNotifications 函數');
+
+  } catch (error) {
+    Logger.log('');
+    Logger.log('❌ 測試失敗');
+    Logger.log('錯誤訊息：' + error.message);
+    Logger.log('錯誤堆疊：');
+    Logger.log(error.stack);
+  }
+
+  Logger.log('========================================');
 }
