@@ -1278,7 +1278,7 @@ function getAllEmployees() {
  * 查詢天氣預報（中央氣象署 API）
  * @param {string} city - 縣市名稱（例如：臺北市、新北市）
  * @param {Date} date - 查詢日期
- * @returns {string} 天氣資訊文字，格式：「🌤️ 多雲時晴 23-28°C 降雨 20%」
+ * @returns {string} 天氣資訊文字，格式：「🌤️ 臺北市天氣預報\n多雲時晴 23-28°C 降雨 20%」
  */
 function getWeatherForecast(city, date) {
   try {
@@ -1289,7 +1289,7 @@ function getWeatherForecast(city, date) {
       Logger.log('使用預設縣市：' + DEFAULT_CITY);
     }
 
-    Logger.log('🌤️ 查詢天氣：' + city);
+    Logger.log('🌤️ 查詢天氣：' + city + ' 日期：' + date.toLocaleDateString('zh-TW'));
 
     // 中央氣象署 36 小時天氣預報 API
     const apiUrl = `https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-C0032-001?Authorization=${WEATHER_API_KEY}&locationName=${encodeURIComponent(city)}`;
@@ -1318,26 +1318,58 @@ function getWeatherForecast(city, date) {
       return '';
     }
 
-    // 提取天氣資訊
+    // 查找與指定日期匹配的時段
+    // 中央氣象署 API 返回多個時段，需要找到包含查詢日期的時段
     let wx = ''; // 天氣現象
     let minT = ''; // 最低溫
     let maxT = ''; // 最高溫
     let pop = ''; // 降雨機率
 
+    // 設定查詢日期的範圍（當天的開始和結束）
+    const targetDate = new Date(date);
+    targetDate.setHours(0, 0, 0, 0);
+    const nextDay = new Date(targetDate);
+    nextDay.setDate(nextDay.getDate() + 1);
+
     for (let element of weatherElements) {
       const elementName = element.elementName;
-      const timeData = element.time && element.time.length > 0 ? element.time[0] : null;
 
-      if (!timeData || !timeData.parameter) continue;
+      // 遍歷所有時段，找到包含查詢日期的時段
+      let selectedTimeData = null;
+
+      if (element.time && element.time.length > 0) {
+        for (let timeData of element.time) {
+          if (timeData.startTime && timeData.endTime) {
+            const startTime = new Date(timeData.startTime);
+            const endTime = new Date(timeData.endTime);
+
+            // 檢查查詢日期是否在此時段範圍內
+            // 或者時段的開始時間在查詢日期當天
+            if ((startTime >= targetDate && startTime < nextDay) ||
+                (endTime > targetDate && endTime <= nextDay) ||
+                (startTime <= targetDate && endTime >= nextDay)) {
+              selectedTimeData = timeData;
+              break;
+            }
+          }
+        }
+
+        // 如果沒有找到匹配的時段，使用第一個時段（默認行為）
+        if (!selectedTimeData && element.time.length > 0) {
+          selectedTimeData = element.time[0];
+        }
+      }
+
+      if (!selectedTimeData || !selectedTimeData.parameter) continue;
 
       if (elementName === 'Wx') {
-        wx = timeData.parameter.parameterName;
+        wx = selectedTimeData.parameter.parameterName;
       } else if (elementName === 'MinT') {
-        minT = timeData.parameter.parameterName;
+        minT = selectedTimeData.parameter.parameterName;
       } else if (elementName === 'MaxT') {
-        maxT = timeData.parameter.parameterName;
+        maxT = selectedTimeData.parameter.parameterName;
       } else if (elementName === 'PoP') {
-        pop = timeData.parameter.parameterName;
+        pop = selectedTimeData.parameter.parameterName;
       }
     }
 
@@ -1355,8 +1387,8 @@ function getWeatherForecast(city, date) {
     else if (wx.includes('陰')) weatherEmoji = '🌥️';
     else if (wx.includes('雷')) weatherEmoji = '⛈️';
 
-    // 組合天氣資訊
-    let weatherInfo = `\n${weatherEmoji} 天氣預報\n`;
+    // 組合天氣資訊（加入城市名稱）
+    let weatherInfo = `\n${weatherEmoji} ${city}天氣預報\n`;
     weatherInfo += `${wx} ${minT}-${maxT}°C\n`;
     weatherInfo += `降雨機率 ${pop}%`;
 
