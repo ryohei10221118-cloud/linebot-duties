@@ -22,6 +22,18 @@ const SHEET_SCHEDULE = '完整班表';
 const SHEET_GROUPS = '組別配置';
 const SHEET_HOLIDAYS = '休息日記錄';
 
+// 👇 天氣 API 設定（中央氣象署）
+const WEATHER_API_KEY = 'CWA-29513A62-634B-44E0-A750-F81882868E34';
+const DEFAULT_CITY = '臺北市'; // 預設縣市（如果用戶沒設定）
+
+// 支援的縣市列表（中央氣象署 36 小時天氣預報）
+const SUPPORTED_CITIES = [
+  '臺北市', '新北市', '桃園市', '臺中市', '臺南市', '高雄市',
+  '基隆市', '新竹市', '新竹縣', '苗栗縣', '彰化縣', '南投縣',
+  '雲林縣', '嘉義市', '嘉義縣', '屏東縣', '宜蘭縣', '花蓮縣',
+  '臺東縣', '澎湖縣', '金門縣', '連江縣'
+];
+
 // ==================== 配置驗證與存取輔助函數 ====================
 
 /**
@@ -556,6 +568,9 @@ function handleTextMessage(event) {
   else if (message.match(/^休息日\s*/)) {
     replyText = handleSetHolidays(userId, message);
   }
+  else if (message.match(/^設[定]?縣市\s*/)) {
+    replyText = handleSetCity(userId, message);
+  }
   else if (message.match(/^查[詢询]\s*/)) {
     replyText = handleCheckSpecificDate(userId, message);
   }
@@ -592,7 +607,15 @@ function handleTextMessage(event) {
  */
 function handleBindUser(userId, message) {
   try {
-    const name = message.replace(/^綁定\s*/, '').trim();
+    // 解析綁定訊息：綁定 姓名 [縣市]
+    const parts = message.replace(/^綁定\s*/, '').trim().split(/\s+/);
+    const name = parts[0];
+    const city = parts[1] || DEFAULT_CITY; // 如果沒提供縣市，使用預設
+
+    // 驗證縣市是否支援
+    if (!SUPPORTED_CITIES.includes(city)) {
+      return `❌ 不支援的縣市「${city}」\n\n✅ 支援的縣市：\n${SUPPORTED_CITIES.join('、')}`;
+    }
 
     // 檢查是否在完整班表中
     const allEmployees = getAllEmployees();
@@ -616,21 +639,22 @@ function handleBindUser(userId, message) {
   let found = false;
   for (let i = 1; i < data.length; i++) {
     if (data[i][0] === userId) {
-      // 更新現有記錄
-      sheet.getRange(i + 1, 2, 1, 3).setValues([[name, mode, '']]);
+      // 更新現有記錄（包含縣市）
+      sheet.getRange(i + 1, 2, 1, 4).setValues([[name, mode, '', city]]);
       found = true;
       break;
     }
   }
 
   if (!found) {
-    // 新增記錄
-    sheet.appendRow([userId, name, mode, '']);
+    // 新增記錄（包含縣市）
+    sheet.appendRow([userId, name, mode, '', city]);
   }
 
   let reply = `✅ 綁定成功！\n\n`;
   reply += `👤 姓名：${name}\n`;
   reply += `📊 模式：${mode}模式\n`;
+  reply += `🌍 縣市：${city}\n`;
 
   if (mode === '完整') {
     reply += `\n你可以使用以下命令：\n`;
@@ -638,10 +662,12 @@ function handleBindUser(userId, message) {
     reply += `• 今天上班嗎\n`;
     reply += `• 本週班表\n`;
     reply += `• 同班人員\n`;
+    reply += `• 設定縣市 [縣市名稱]\n`;
   } else {
     reply += `\n`;
     reply += `請設置你的休息日：\n`;
     reply += `例如：休息日 11/3,11/10,11/17\n\n`;
+    reply += `你也可以修改縣市：設定縣市 新北市\n\n`;
     reply += `設置後系統會每天自動提醒你！`;
   }
 
@@ -703,6 +729,39 @@ function handleSetHolidays(userId, message) {
   reply += `\n系統會在每天自動提醒你！`;
 
   return reply;
+}
+
+/**
+ * 設定縣市
+ * 格式：設定縣市 臺北市
+ */
+function handleSetCity(userId, message) {
+  const user = getUserInfo(userId);
+  if (!user) {
+    return '❌ 請先綁定身份！\n例如：綁定 Sunny';
+  }
+
+  // 解析縣市（支持有空格或無空格）
+  const city = message.replace(/^設[定]?縣市\s*/, '').trim();
+
+  // 驗證縣市是否支援
+  if (!SUPPORTED_CITIES.includes(city)) {
+    return `❌ 不支援的縣市「${city}」\n\n✅ 支援的縣市：\n${SUPPORTED_CITIES.join('、')}`;
+  }
+
+  // 更新用戶縣市
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_USERS);
+  const data = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === userId) {
+      // 更新第 5 列（E 列，index 4）的縣市
+      sheet.getRange(i + 1, 5).setValue(city);
+      return `✅ 已更新縣市設定：${city}\n\n之後的天氣預報將顯示${city}的天氣！`;
+    }
+  }
+
+  return '❌ 找不到用戶資料，請重新綁定。';
 }
 
 /**
@@ -943,7 +1002,8 @@ function getUserInfo(userId) {
         userId: data[i][0],
         name: data[i][1],
         mode: data[i][2],
-        group: data[i][3]
+        group: data[i][3],
+        city: data[i][4] || DEFAULT_CITY // 如果沒設定，使用預設縣市
       };
     }
   }
@@ -1215,6 +1275,97 @@ function getAllEmployees() {
 }
 
 /**
+ * 查詢天氣預報（中央氣象署 API）
+ * @param {string} city - 縣市名稱（例如：臺北市、新北市）
+ * @param {Date} date - 查詢日期
+ * @returns {string} 天氣資訊文字，格式：「🌤️ 多雲時晴 23-28°C 降雨 20%」
+ */
+function getWeatherForecast(city, date) {
+  try {
+    // 中央氣象署 36 小時天氣預報 API
+    const apiUrl = `https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-C0032-001?Authorization=${WEATHER_API_KEY}&locationName=${encodeURIComponent(city)}`;
+
+    const response = UrlFetchApp.fetch(apiUrl);
+    const data = JSON.parse(response.getContentText());
+
+    // 檢查 API 回應是否成功
+    if (!data.success || !data.records || !data.records.location || data.records.location.length === 0) {
+      Logger.log('⚠️ 天氣 API 回應異常: ' + JSON.stringify(data));
+      return ''; // 靜默失敗，不顯示天氣
+    }
+
+    const location = data.records.location[0];
+    const weatherElements = location.weatherElement;
+
+    // 找到最接近目標日期的時段
+    const targetDate = new Date(date);
+    targetDate.setHours(0, 0, 0, 0);
+
+    let closestTimeData = null;
+    let minDiff = Infinity;
+
+    // 取得第一個時段的資料（通常是未來 0-12 小時）
+    for (let element of weatherElements) {
+      if (element.time && element.time.length > 0) {
+        for (let timeData of element.time) {
+          const startTime = new Date(timeData.startTime);
+          startTime.setHours(0, 0, 0, 0);
+
+          const diff = Math.abs(targetDate - startTime);
+          if (diff < minDiff) {
+            minDiff = diff;
+          }
+        }
+        break;
+      }
+    }
+
+    // 提取天氣資訊
+    let wx = ''; // 天氣現象
+    let minT = ''; // 最低溫
+    let maxT = ''; // 最高溫
+    let pop = ''; // 降雨機率
+
+    for (let element of weatherElements) {
+      const elementName = element.elementName;
+      const timeData = element.time[0]; // 使用第一個時段
+
+      if (!timeData) continue;
+
+      if (elementName === 'Wx') {
+        wx = timeData.parameter.parameterName;
+      } else if (elementName === 'MinT') {
+        minT = timeData.parameter.parameterName;
+      } else if (elementName === 'MaxT') {
+        maxT = timeData.parameter.parameterName;
+      } else if (elementName === 'PoP') {
+        pop = timeData.parameter.parameterName;
+      }
+    }
+
+    // 根據天氣現象選擇 emoji
+    let weatherEmoji = '🌤️';
+    if (wx.includes('雨')) weatherEmoji = '🌧️';
+    else if (wx.includes('雲')) weatherEmoji = '☁️';
+    else if (wx.includes('晴')) weatherEmoji = '☀️';
+    else if (wx.includes('陰')) weatherEmoji = '🌥️';
+    else if (wx.includes('雷')) weatherEmoji = '⛈️';
+
+    // 組合天氣資訊
+    let weatherInfo = `\n${weatherEmoji} 天氣預報\n`;
+    weatherInfo += `${wx} ${minT}-${maxT}°C\n`;
+    weatherInfo += `降雨機率 ${pop}%`;
+
+    return weatherInfo;
+
+  } catch (error) {
+    Logger.log('❌ 天氣查詢失敗：' + error.message);
+    Logger.log('錯誤堆疊：' + error.stack);
+    return ''; // 靜默失敗，不顯示天氣
+  }
+}
+
+/**
  * 簡化模式：檢查是否上班
  */
 function checkSimpleMode(user, date) {
@@ -1230,6 +1381,12 @@ function checkSimpleMode(user, date) {
     reply += `😴 休假啦\n好好休息～`;
   } else {
     reply += `💼 需要上班\n早點睡，上班加油！`;
+  }
+
+  // 加入天氣預報
+  const weather = getWeatherForecast(user.city, date);
+  if (weather) {
+    reply += weather;
   }
 
   return reply;
@@ -1284,6 +1441,12 @@ function checkFullMode(user, date) {
     reply += `\n早點睡，上班加油！`;
   }
 
+  // 加入天氣預報
+  const weather = getWeatherForecast(user.city, date);
+  if (weather) {
+    reply += weather;
+  }
+
   return reply;
 }
 
@@ -1293,7 +1456,8 @@ function checkFullMode(user, date) {
 function getHelpMessage() {
   return `🤖 班表查詢 Bot 使用說明\n\n` +
     `📝 基礎命令：\n` +
-    `• 綁定xxx - 綁定身份\n` +
+    `• 綁定xxx [縣市] - 綁定身份（可選縣市）\n` +
+    `• 設定縣市 臺北市 - 修改天氣預報縣市\n` +
     `• 幫助 - 顯示此幫助\n\n` +
     `📅 查詢命令：\n` +
     `• 今天上班嗎 - 查詢今天的班別\n` +
@@ -1303,6 +1467,9 @@ function getHelpMessage() {
     `😴 簡化模式（不在班表中）：\n` +
     `• 休假日 11/3,11/10 - 設定休假日\n` +
     `• 本月休假日 - 查看本月休假日\n\n` +
+    `🌤️ 天氣預報：\n` +
+    `• 所有查詢都會自動顯示天氣預報\n` +
+    `• 支援全台 22 個縣市\n\n` +
     `💡 提示：命令中的空格可有可無`;
 }
 
