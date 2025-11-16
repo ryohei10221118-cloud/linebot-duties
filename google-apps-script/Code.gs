@@ -832,18 +832,21 @@ function handleCheckMonthHolidays(userId) {
   }
 
   const today = new Date();
+  const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
   let reply = `📅 你的休息日：\n\n`;
 
   holidays.forEach(h => {
     const hDate = new Date(h);
     const isPast = hDate < today;
     const emoji = isPast ? '✅' : '⏰';
-    reply += `${emoji} ${hDate.getMonth() + 1}/${hDate.getDate()}`;
+    const weekday = weekdays[hDate.getDay()];
+
+    reply += `${emoji} ${hDate.getMonth() + 1}/${hDate.getDate()} (週${weekday})`;
     if (!isPast) {
       const daysLeft = Math.ceil((hDate - today) / (1000 * 60 * 60 * 24));
-      reply += ` (還有${daysLeft}天)`;
+      reply += ` - 還有${daysLeft}天`;
     } else {
-      reply += ` (已過)`;
+      reply += ` - 已過`;
     }
     reply += '\n';
   });
