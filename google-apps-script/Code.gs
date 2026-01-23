@@ -289,6 +289,70 @@ function testBindUser() {
 }
 
 /**
+ * 🧪 測試星座運勢功能（Aztro API + Google 翻譯）
+ *
+ * 使用方法：
+ * 1. 選擇 "testZodiacFortune" 函數
+ * 2. 點擊「執行」
+ * 3. **首次執行會彈出授權窗口，請允許授權**
+ * 4. 查看執行日誌，確認運勢是否正確獲取和翻譯
+ *
+ * 這個函數會測試：
+ * ✓ Aztro API 連接
+ * ✓ Google 翻譯服務
+ * ✓ 備用系統降級
+ */
+function testZodiacFortune() {
+  Logger.log('========================================');
+  Logger.log('🧪 測試星座運勢功能');
+  Logger.log('========================================');
+  Logger.log('');
+
+  const testZodiac = '天秤座';  // 測試星座
+  const testDate = new Date();   // 測試日期（今天）
+
+  Logger.log('測試星座：' + testZodiac);
+  Logger.log('測試日期：' + testDate.toLocaleDateString('zh-TW'));
+  Logger.log('');
+
+  try {
+    Logger.log('【步驟 1】嘗試調用 Aztro API...');
+    const fortune = getZodiacFortune(testZodiac, testDate);
+
+    if (fortune) {
+      Logger.log('✅ 星座運勢獲取成功！');
+      Logger.log('');
+      Logger.log('【運勢內容】');
+      Logger.log('---');
+      Logger.log(fortune);
+      Logger.log('---');
+      Logger.log('');
+      Logger.log('✅ 測試完成！API 和翻譯服務工作正常。');
+    } else {
+      Logger.log('⚠️ 未獲取到運勢內容');
+      Logger.log('請檢查：');
+      Logger.log('1. 網絡連接是否正常');
+      Logger.log('2. Aztro API 是否可訪問');
+    }
+
+  } catch (error) {
+    Logger.log('❌ 測試失敗');
+    Logger.log('錯誤訊息：' + error.message);
+    Logger.log('錯誤堆疊：' + error.stack);
+    Logger.log('');
+
+    if (error.message.includes('Authorization')) {
+      Logger.log('💡 提示：這可能是授權問題');
+      Logger.log('請確保已授權以下權限：');
+      Logger.log('  • 連接到外部服務');
+      Logger.log('  • 使用 Google 翻譯服務');
+    }
+  }
+
+  Logger.log('========================================');
+}
+
+/**
  * 🔍 調試班表結構
  *
  * 使用方法：
