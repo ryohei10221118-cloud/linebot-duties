@@ -568,6 +568,9 @@ function handleTextMessage(event) {
   else if (message.match(/^休息日\s*/)) {
     replyText = handleSetHolidays(userId, message);
   }
+  else if (message.match(/^設[定]?星座\s*/)) {
+    replyText = handleSetZodiac(userId, message);
+  }
   else if (message.match(/^設[定]?縣市\s*/)) {
     replyText = handleSetCity(userId, message);
   }
@@ -607,14 +610,19 @@ function handleTextMessage(event) {
  */
 function handleBindUser(userId, message) {
   try {
-    // 解析綁定訊息：綁定 姓名 [縣市]
+    // 解析綁定訊息：綁定 姓名 [縣市] [星座]
     const parts = message.replace(/^綁定\s*/, '').trim().split(/\s+/);
     const name = parts[0];
-    const city = parts[1] || DEFAULT_CITY; // 如果沒提供縣市，使用預設
+    let city = DEFAULT_CITY;
+    let zodiac = '';
 
-    // 驗證縣市是否支援
-    if (!SUPPORTED_CITIES.includes(city)) {
-      return `❌ 不支援的縣市「${city}」\n\n✅ 支援的縣市：\n${SUPPORTED_CITIES.join('、')}`;
+    // 解析縣市和星座（可以是任意順序）
+    for (let i = 1; i < parts.length; i++) {
+      if (SUPPORTED_CITIES.includes(parts[i])) {
+        city = parts[i];
+      } else if (ZODIAC_SIGNS.includes(parts[i])) {
+        zodiac = parts[i];
+      }
     }
 
     // 檢查是否在完整班表中
@@ -639,22 +647,25 @@ function handleBindUser(userId, message) {
   let found = false;
   for (let i = 1; i < data.length; i++) {
     if (data[i][0] === userId) {
-      // 更新現有記錄（包含縣市）
-      sheet.getRange(i + 1, 2, 1, 4).setValues([[name, mode, '', city]]);
+      // 更新現有記錄（包含縣市和星座）
+      sheet.getRange(i + 1, 2, 1, 5).setValues([[name, mode, '', city, zodiac]]);
       found = true;
       break;
     }
   }
 
   if (!found) {
-    // 新增記錄（包含縣市）
-    sheet.appendRow([userId, name, mode, '', city]);
+    // 新增記錄（包含縣市和星座）
+    sheet.appendRow([userId, name, mode, '', city, zodiac]);
   }
 
   let reply = `✅ 綁定成功！\n\n`;
   reply += `👤 姓名：${name}\n`;
   reply += `📊 模式：${mode}模式\n`;
   reply += `🌍 縣市：${city}\n`;
+  if (zodiac) {
+    reply += `✨ 星座：${zodiac}\n`;
+  }
 
   if (mode === '完整') {
     reply += `\n你可以使用以下命令：\n`;
@@ -663,12 +674,18 @@ function handleBindUser(userId, message) {
     reply += `• 本週班表\n`;
     reply += `• 同班人員\n`;
     reply += `• 設定縣市 [縣市名稱]\n`;
+    if (!zodiac) {
+      reply += `• 設定星座 [星座名稱]\n`;
+    }
   } else {
     reply += `\n`;
     reply += `請設置你的休息日：\n`;
     reply += `例如：休息日 11/3,11/10,11/17\n\n`;
-    reply += `你也可以修改縣市：設定縣市 新北市\n\n`;
-    reply += `設置後系統會每天自動提醒你！`;
+    reply += `你也可以修改縣市：設定縣市 新北市\n`;
+    if (!zodiac) {
+      reply += `或設定星座：設定星座 天秤座\n`;
+    }
+    reply += `\n設置後系統會每天自動提醒你！`;
   }
 
     return reply;
@@ -729,6 +746,39 @@ function handleSetHolidays(userId, message) {
   reply += `\n系統會在每天自動提醒你！`;
 
   return reply;
+}
+
+/**
+ * 設定星座
+ * 格式：設定星座 天秤座
+ */
+function handleSetZodiac(userId, message) {
+  const user = getUserInfo(userId);
+  if (!user) {
+    return '❌ 請先綁定身份！\n例如：綁定 Sunny';
+  }
+
+  // 解析星座（支持有空格或無空格）
+  const zodiac = message.replace(/^設[定]?星座\s*/, '').trim();
+
+  // 驗證星座是否支援
+  if (!ZODIAC_SIGNS.includes(zodiac)) {
+    return `❌ 不支援的星座「${zodiac}」\n\n✅ 支援的星座：\n${ZODIAC_SIGNS.join('、')}`;
+  }
+
+  // 更新用戶星座
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_USERS);
+  const data = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === userId) {
+      // 更新第 6 列（F 列，index 5）的星座
+      sheet.getRange(i + 1, 6).setValue(zodiac);
+      return `✅ 已更新星座設定：${zodiac}\n\n之後的通知將包含${zodiac}的每日運勢！`;
+    }
+  }
+
+  return '❌ 找不到用戶資料，請重新綁定。';
 }
 
 /**
@@ -1003,7 +1053,8 @@ function getUserInfo(userId) {
         name: data[i][1],
         mode: data[i][2],
         group: data[i][3],
-        city: data[i][4] || DEFAULT_CITY // 如果沒設定，使用預設縣市
+        city: data[i][4] || DEFAULT_CITY, // 如果沒設定，使用預設縣市
+        zodiac: data[i][5] || '' // 星座（第6列，F列）
       };
     }
   }
@@ -1403,6 +1454,230 @@ function getWeatherForecast(city, date) {
 }
 
 /**
+ * 支援的星座列表
+ */
+const ZODIAC_SIGNS = [
+  '白羊座', '金牛座', '雙子座', '巨蟹座', '獅子座', '處女座',
+  '天秤座', '天蠍座', '射手座', '摩羯座', '水瓶座', '雙魚座'
+];
+
+/**
+ * 中文星座對應英文星座
+ */
+const ZODIAC_MAPPING = {
+  '白羊座': 'aries',
+  '金牛座': 'taurus',
+  '雙子座': 'gemini',
+  '巨蟹座': 'cancer',
+  '獅子座': 'leo',
+  '處女座': 'virgo',
+  '天秤座': 'libra',
+  '天蠍座': 'scorpio',
+  '射手座': 'sagittarius',
+  '摩羯座': 'capricorn',
+  '水瓶座': 'aquarius',
+  '雙魚座': 'pisces'
+};
+
+/**
+ * 獲取每日星座運勢（使用 Aztro API + Google 翻譯）
+ * @param {string} zodiac - 星座名稱（繁體中文）
+ * @param {Date} date - 查詢日期
+ * @returns {string} 星座運勢文字
+ */
+function getZodiacFortune(zodiac, date) {
+  try {
+    if (!zodiac || !ZODIAC_SIGNS.includes(zodiac)) {
+      return '';
+    }
+
+    // 先嘗試使用 Aztro API
+    const apiResult = getZodiacFortuneFromAPI(zodiac, date);
+    if (apiResult) {
+      return apiResult;
+    }
+
+    // API 失敗時，使用自建運勢系統作為備用
+    Logger.log('⚠️ Aztro API 失敗，使用自建運勢系統');
+    return getZodiacFortuneFallback(zodiac, date);
+
+  } catch (error) {
+    Logger.log('❌ 星座運勢查詢失敗：' + error.message);
+    // 發生錯誤時使用自建系統
+    return getZodiacFortuneFallback(zodiac, date);
+  }
+}
+
+/**
+ * 從 Aztro API 獲取星座運勢
+ * @param {string} zodiac - 星座名稱（繁體中文）
+ * @param {Date} date - 查詢日期
+ * @returns {string} 星座運勢文字或空字串
+ */
+function getZodiacFortuneFromAPI(zodiac, date) {
+  try {
+    // 轉換中文星座為英文
+    const englishSign = ZODIAC_MAPPING[zodiac];
+    if (!englishSign) {
+      Logger.log('⚠️ 無法找到星座對應：' + zodiac);
+      return '';
+    }
+
+    // 判斷查詢哪一天（today, tomorrow, yesterday）
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const targetDate = new Date(date);
+    targetDate.setHours(0, 0, 0, 0);
+
+    let day = 'today';
+    const diffDays = Math.round((targetDate - today) / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) {
+      day = 'today';
+    } else if (diffDays === 1) {
+      day = 'tomorrow';
+    } else if (diffDays === -1) {
+      day = 'yesterday';
+    } else {
+      // Aztro API 只支持今天、明天、昨天，其他日期使用 today
+      day = 'today';
+    }
+
+    Logger.log('🌟 調用 Aztro API：' + englishSign + ' / ' + day);
+
+    // 調用 Aztro API
+    const url = `https://aztro.sameerkumar.website/?sign=${englishSign}&day=${day}`;
+    const options = {
+      method: 'post',
+      muteHttpExceptions: true,
+      validateHttpsCertificates: false
+    };
+
+    const response = UrlFetchApp.fetch(url, options);
+    const statusCode = response.getResponseCode();
+
+    if (statusCode !== 200) {
+      Logger.log('⚠️ Aztro API 返回錯誤：' + statusCode);
+      return '';
+    }
+
+    const data = JSON.parse(response.getContentText());
+
+    // 提取運勢資訊
+    const description = data.description || '';
+    const mood = data.mood || '';
+    const color = data.color || '';
+    const luckyNumber = data.lucky_number || '';
+    const luckyTime = data.lucky_time || '';
+
+    if (!description) {
+      Logger.log('⚠️ Aztro API 返回空內容');
+      return '';
+    }
+
+    // 使用 Google 翻譯將英文翻譯成繁體中文
+    const translatedDescription = LanguageApp.translate(description, 'en', 'zh-TW');
+    const translatedMood = mood ? LanguageApp.translate(mood, 'en', 'zh-TW') : '';
+    const translatedColor = color ? LanguageApp.translate(color, 'en', 'zh-TW') : '';
+
+    // 組合運勢訊息
+    let fortune = `\n\n✨ ${zodiac}運勢\n`;
+    fortune += `${translatedDescription}\n\n`;
+
+    if (translatedMood) {
+      fortune += `💭 今日心情：${translatedMood}\n`;
+    }
+
+    if (translatedColor && luckyNumber) {
+      fortune += `🍀 幸運色：${translatedColor} | 幸運數字：${luckyNumber}`;
+    } else if (translatedColor) {
+      fortune += `🍀 幸運色：${translatedColor}`;
+    } else if (luckyNumber) {
+      fortune += `🍀 幸運數字：${luckyNumber}`;
+    }
+
+    Logger.log('✓ Aztro API 星座運勢查詢成功：' + zodiac);
+    return fortune;
+
+  } catch (error) {
+    Logger.log('❌ Aztro API 調用失敗：' + error.message);
+    return '';
+  }
+}
+
+/**
+ * 自建星座運勢系統（備用方案）
+ * @param {string} zodiac - 星座名稱
+ * @param {Date} date - 查詢日期
+ * @returns {string} 星座運勢文字
+ */
+function getZodiacFortuneFallback(zodiac, date) {
+  try {
+    // 使用日期作為隨機種子，確保同一天同一星座的運勢相同
+    const dateStr = date.getFullYear() + '-' + (date.getMonth() + 1) + '-' + date.getDate();
+    const seed = zodiac.charCodeAt(0) + dateStr.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+
+    // 簡單的偽隨機數生成器
+    const random = (max) => {
+      const x = Math.sin(seed + max) * 10000;
+      return Math.floor((x - Math.floor(x)) * max);
+    };
+
+    // 運勢評分（1-5星）
+    const luckScore = (random(5) % 5) + 1;
+    const stars = '⭐'.repeat(luckScore);
+
+    // 運勢關鍵詞
+    const luckKeywords = [
+      ['順遂', '平穩', '需謹慎', '挑戰', '轉機'],
+      ['活力充沛', '平和安穩', '需要休息', '精力旺盛', '心情愉悅'],
+      ['貴人相助', '獨立自主', '團隊合作', '適合社交', '宜獨處思考']
+    ];
+
+    const keyword1 = luckKeywords[0][random(luckKeywords[0].length)];
+    const keyword2 = luckKeywords[1][random(luckKeywords[1].length)];
+    const keyword3 = luckKeywords[2][random(luckKeywords[2].length)];
+
+    // 幸運色
+    const luckyColors = ['紅色', '藍色', '綠色', '黃色', '紫色', '粉色', '白色', '黑色', '橙色'];
+    const luckyColor = luckyColors[random(luckyColors.length)];
+
+    // 幸運數字
+    const luckyNumber = (random(99) % 99) + 1;
+
+    // 每日建議
+    const advices = [
+      '保持積極樂觀的心態',
+      '多與他人溝通交流',
+      '注意身體健康',
+      '適當放鬆心情',
+      '把握當下機會',
+      '謹慎處理細節',
+      '相信自己的直覺',
+      '多關心身邊的人',
+      '學習新事物',
+      '整理思緒規劃未來'
+    ];
+    const advice = advices[random(advices.length)];
+
+    // 組合運勢訊息
+    let fortune = `\n\n✨ ${zodiac}運勢 ${stars}\n`;
+    fortune += `整體運勢：${keyword1}\n`;
+    fortune += `能量狀態：${keyword2}\n`;
+    fortune += `人際關係：${keyword3}\n`;
+    fortune += `幸運色：${luckyColor} | 幸運數字：${luckyNumber}\n`;
+    fortune += `💡 ${advice}`;
+
+    Logger.log('✓ 自建星座運勢生成成功：' + zodiac);
+    return fortune;
+
+  } catch (error) {
+    Logger.log('❌ 自建星座運勢生成失敗：' + error.message);
+    return '';
+  }
+}
+
+/**
  * 簡化模式：檢查是否上班
  */
 function checkSimpleMode(user, date) {
@@ -1424,6 +1699,14 @@ function checkSimpleMode(user, date) {
   const weather = getWeatherForecast(user.city, date);
   if (weather) {
     reply += weather;
+  }
+
+  // 加入星座運勢
+  if (user.zodiac) {
+    const fortune = getZodiacFortune(user.zodiac, date);
+    if (fortune) {
+      reply += fortune;
+    }
   }
 
   return reply;
@@ -1484,6 +1767,14 @@ function checkFullMode(user, date) {
     reply += weather;
   }
 
+  // 加入星座運勢
+  if (user.zodiac) {
+    const fortune = getZodiacFortune(user.zodiac, date);
+    if (fortune) {
+      reply += fortune;
+    }
+  }
+
   return reply;
 }
 
@@ -1493,8 +1784,9 @@ function checkFullMode(user, date) {
 function getHelpMessage() {
   return `🤖 班表查詢 Bot 使用說明\n\n` +
     `📝 基礎命令：\n` +
-    `• 綁定xxx [縣市] - 綁定身份（可選縣市）\n` +
+    `• 綁定xxx [縣市] [星座] - 綁定身份\n` +
     `• 設定縣市 臺北市 - 修改天氣預報縣市\n` +
+    `• 設定星座 天秤座 - 設定星座運勢\n` +
     `• 幫助 - 顯示此幫助\n\n` +
     `📅 查詢命令：\n` +
     `• 今天上班嗎 - 查詢今天的班別\n` +
@@ -1507,6 +1799,9 @@ function getHelpMessage() {
     `🌤️ 天氣預報：\n` +
     `• 所有查詢都會自動顯示天氣預報\n` +
     `• 支援全台 22 個縣市\n\n` +
+    `✨ 星座運勢：\n` +
+    `• 設定星座後，所有查詢會顯示每日運勢\n` +
+    `• 支援 12 星座\n\n` +
     `💡 提示：命令中的空格可有可無`;
 }
 
