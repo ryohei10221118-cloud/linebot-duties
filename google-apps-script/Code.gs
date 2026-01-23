@@ -1462,8 +1462,26 @@ const ZODIAC_SIGNS = [
 ];
 
 /**
- * 獲取每日星座運勢
- * @param {string} zodiac - 星座名稱
+ * 中文星座對應英文星座
+ */
+const ZODIAC_MAPPING = {
+  '白羊座': 'aries',
+  '金牛座': 'taurus',
+  '雙子座': 'gemini',
+  '巨蟹座': 'cancer',
+  '獅子座': 'leo',
+  '處女座': 'virgo',
+  '天秤座': 'libra',
+  '天蠍座': 'scorpio',
+  '射手座': 'sagittarius',
+  '摩羯座': 'capricorn',
+  '水瓶座': 'aquarius',
+  '雙魚座': 'pisces'
+};
+
+/**
+ * 獲取每日星座運勢（使用 Aztro API + Google 翻譯）
+ * @param {string} zodiac - 星座名稱（繁體中文）
  * @param {Date} date - 查詢日期
  * @returns {string} 星座運勢文字
  */
@@ -1473,6 +1491,128 @@ function getZodiacFortune(zodiac, date) {
       return '';
     }
 
+    // 先嘗試使用 Aztro API
+    const apiResult = getZodiacFortuneFromAPI(zodiac, date);
+    if (apiResult) {
+      return apiResult;
+    }
+
+    // API 失敗時，使用自建運勢系統作為備用
+    Logger.log('⚠️ Aztro API 失敗，使用自建運勢系統');
+    return getZodiacFortuneFallback(zodiac, date);
+
+  } catch (error) {
+    Logger.log('❌ 星座運勢查詢失敗：' + error.message);
+    // 發生錯誤時使用自建系統
+    return getZodiacFortuneFallback(zodiac, date);
+  }
+}
+
+/**
+ * 從 Aztro API 獲取星座運勢
+ * @param {string} zodiac - 星座名稱（繁體中文）
+ * @param {Date} date - 查詢日期
+ * @returns {string} 星座運勢文字或空字串
+ */
+function getZodiacFortuneFromAPI(zodiac, date) {
+  try {
+    // 轉換中文星座為英文
+    const englishSign = ZODIAC_MAPPING[zodiac];
+    if (!englishSign) {
+      Logger.log('⚠️ 無法找到星座對應：' + zodiac);
+      return '';
+    }
+
+    // 判斷查詢哪一天（today, tomorrow, yesterday）
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const targetDate = new Date(date);
+    targetDate.setHours(0, 0, 0, 0);
+
+    let day = 'today';
+    const diffDays = Math.round((targetDate - today) / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) {
+      day = 'today';
+    } else if (diffDays === 1) {
+      day = 'tomorrow';
+    } else if (diffDays === -1) {
+      day = 'yesterday';
+    } else {
+      // Aztro API 只支持今天、明天、昨天，其他日期使用 today
+      day = 'today';
+    }
+
+    Logger.log('🌟 調用 Aztro API：' + englishSign + ' / ' + day);
+
+    // 調用 Aztro API
+    const url = `https://aztro.sameerkumar.website/?sign=${englishSign}&day=${day}`;
+    const options = {
+      method: 'post',
+      muteHttpExceptions: true,
+      validateHttpsCertificates: false
+    };
+
+    const response = UrlFetchApp.fetch(url, options);
+    const statusCode = response.getResponseCode();
+
+    if (statusCode !== 200) {
+      Logger.log('⚠️ Aztro API 返回錯誤：' + statusCode);
+      return '';
+    }
+
+    const data = JSON.parse(response.getContentText());
+
+    // 提取運勢資訊
+    const description = data.description || '';
+    const mood = data.mood || '';
+    const color = data.color || '';
+    const luckyNumber = data.lucky_number || '';
+    const luckyTime = data.lucky_time || '';
+
+    if (!description) {
+      Logger.log('⚠️ Aztro API 返回空內容');
+      return '';
+    }
+
+    // 使用 Google 翻譯將英文翻譯成繁體中文
+    const translatedDescription = LanguageApp.translate(description, 'en', 'zh-TW');
+    const translatedMood = mood ? LanguageApp.translate(mood, 'en', 'zh-TW') : '';
+    const translatedColor = color ? LanguageApp.translate(color, 'en', 'zh-TW') : '';
+
+    // 組合運勢訊息
+    let fortune = `\n\n✨ ${zodiac}運勢\n`;
+    fortune += `${translatedDescription}\n\n`;
+
+    if (translatedMood) {
+      fortune += `💭 今日心情：${translatedMood}\n`;
+    }
+
+    if (translatedColor && luckyNumber) {
+      fortune += `🍀 幸運色：${translatedColor} | 幸運數字：${luckyNumber}`;
+    } else if (translatedColor) {
+      fortune += `🍀 幸運色：${translatedColor}`;
+    } else if (luckyNumber) {
+      fortune += `🍀 幸運數字：${luckyNumber}`;
+    }
+
+    Logger.log('✓ Aztro API 星座運勢查詢成功：' + zodiac);
+    return fortune;
+
+  } catch (error) {
+    Logger.log('❌ Aztro API 調用失敗：' + error.message);
+    return '';
+  }
+}
+
+/**
+ * 自建星座運勢系統（備用方案）
+ * @param {string} zodiac - 星座名稱
+ * @param {Date} date - 查詢日期
+ * @returns {string} 星座運勢文字
+ */
+function getZodiacFortuneFallback(zodiac, date) {
+  try {
     // 使用日期作為隨機種子，確保同一天同一星座的運勢相同
     const dateStr = date.getFullYear() + '-' + (date.getMonth() + 1) + '-' + date.getDate();
     const seed = zodiac.charCodeAt(0) + dateStr.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
@@ -1528,11 +1668,11 @@ function getZodiacFortune(zodiac, date) {
     fortune += `幸運色：${luckyColor} | 幸運數字：${luckyNumber}\n`;
     fortune += `💡 ${advice}`;
 
-    Logger.log('✓ 星座運勢查詢成功：' + zodiac);
+    Logger.log('✓ 自建星座運勢生成成功：' + zodiac);
     return fortune;
 
   } catch (error) {
-    Logger.log('❌ 星座運勢查詢失敗：' + error.message);
+    Logger.log('❌ 自建星座運勢生成失敗：' + error.message);
     return '';
   }
 }
