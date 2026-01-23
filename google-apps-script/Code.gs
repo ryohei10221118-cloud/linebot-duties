@@ -1608,24 +1608,25 @@ function getZodiacFortuneFromAPI(zodiac, date) {
     const targetDate = new Date(date);
     targetDate.setHours(0, 0, 0, 0);
 
-    let day = 'TODAY';
+    let day = 'today';
     const diffDays = Math.round((targetDate - today) / (1000 * 60 * 60 * 24));
 
     if (diffDays === 0) {
-      day = 'TODAY';
+      day = 'today';
     } else if (diffDays === 1) {
-      day = 'TOMORROW';
+      day = 'tomorrow';
     } else if (diffDays === -1) {
-      day = 'YESTERDAY';
+      day = 'yesterday';
     } else {
-      // 其他日期使用 TODAY
-      day = 'TODAY';
+      // 其他日期使用 today
+      day = 'today';
     }
 
     Logger.log('🌟 調用 RapidAPI Horoscope API：' + englishSign + ' / ' + day);
 
     // 調用 RapidAPI Horoscope Astrology API
-    const url = `https://${RAPIDAPI_HOST}/api/v1/get-horoscope/daily?sign=${englishSign}&day=${day}`;
+    // 正確的 endpoint: /horoscope?day=today&sunsign=libra
+    const url = `https://${RAPIDAPI_HOST}/horoscope?day=${day}&sunsign=${englishSign}`;
     const options = {
       method: 'get',
       headers: {
@@ -1647,16 +1648,20 @@ function getZodiacFortuneFromAPI(zodiac, date) {
     const data = JSON.parse(response.getContentText());
 
     // RapidAPI Horoscope API 的回應格式
-    // {
-    //   "data": {
-    //     "date": "Dec 23, 2023",
-    //     "horoscope_data": "Your daily horoscope text..."
-    //   },
-    //   "status": 200,
-    //   "success": true
-    // }
+    // 嘗試多種可能的回應格式
+    let horoscopeText = '';
 
-    const horoscopeText = data.data && data.data.horoscope_data ? data.data.horoscope_data : '';
+    if (data.horoscope) {
+      horoscopeText = data.horoscope;
+    } else if (data.data && data.data.horoscope) {
+      horoscopeText = data.data.horoscope;
+    } else if (data.data && data.data.horoscope_data) {
+      horoscopeText = data.data.horoscope_data;
+    } else if (data.prediction) {
+      horoscopeText = data.prediction;
+    } else if (typeof data === 'string') {
+      horoscopeText = data;
+    }
 
     if (!horoscopeText) {
       Logger.log('⚠️ RapidAPI 返回空內容');
