@@ -12,6 +12,12 @@
 // 👇 請填入你的 LINE Bot 資訊
 const LINE_CHANNEL_ACCESS_TOKEN = 'YOUR_CHANNEL_ACCESS_TOKEN_HERE';
 
+// 👇 RapidAPI 設定（用於星座運勢）
+// 註冊網址：https://rapidapi.com/Alejandro99aru/api/horoscope-astrology
+// 註冊後在這裡填入你的 RapidAPI Key
+const RAPIDAPI_KEY = 'YOUR_RAPIDAPI_KEY_HERE';  // 👈 在這裡填入你的 RapidAPI Key
+const RAPIDAPI_HOST = 'horoscope-astrology.p.rapidapi.com';
+
 // 👇 請填入你的 Google Sheets ID（從網址複製）
 // 格式：https://docs.google.com/spreadsheets/d/【這一段】/edit
 const SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_HERE';
@@ -289,22 +295,23 @@ function testBindUser() {
 }
 
 /**
- * 🧪 測試星座運勢功能（Aztro API + Google 翻譯）
+ * 🧪 測試星座運勢功能（RapidAPI + Google 翻譯）
  *
  * 使用方法：
- * 1. 選擇 "testZodiacFortune" 函數
- * 2. 點擊「執行」
- * 3. **首次執行會彈出授權窗口，請允許授權**
- * 4. 查看執行日誌，確認運勢是否正確獲取和翻譯
+ * 1. 確保已在第 18 行填入 RAPIDAPI_KEY
+ * 2. 選擇 "testZodiacFortune" 函數
+ * 3. 點擊「執行」
+ * 4. **首次執行會彈出授權窗口，請允許授權**
+ * 5. 查看執行日誌，確認運勢是否正確獲取和翻譯
  *
  * 這個函數會測試：
- * ✓ Aztro API 連接
+ * ✓ RapidAPI Horoscope API 連接
  * ✓ Google 翻譯服務
  * ✓ 備用系統降級
  */
 function testZodiacFortune() {
   Logger.log('========================================');
-  Logger.log('🧪 測試星座運勢功能');
+  Logger.log('🧪 測試星座運勢功能 (RapidAPI)');
   Logger.log('========================================');
   Logger.log('');
 
@@ -313,10 +320,11 @@ function testZodiacFortune() {
 
   Logger.log('測試星座：' + testZodiac);
   Logger.log('測試日期：' + testDate.toLocaleDateString('zh-TW'));
+  Logger.log('RapidAPI Key 狀態：' + (RAPIDAPI_KEY !== 'YOUR_RAPIDAPI_KEY_HERE' ? '已設置' : '❌ 未設置'));
   Logger.log('');
 
   try {
-    Logger.log('【步驟 1】嘗試調用 Aztro API...');
+    Logger.log('【步驟 1】嘗試調用 RapidAPI Horoscope API...');
     const fortune = getZodiacFortune(testZodiac, testDate);
 
     if (fortune) {
@@ -331,8 +339,9 @@ function testZodiacFortune() {
     } else {
       Logger.log('⚠️ 未獲取到運勢內容');
       Logger.log('請檢查：');
-      Logger.log('1. 網絡連接是否正常');
-      Logger.log('2. Aztro API 是否可訪問');
+      Logger.log('1. RapidAPI Key 是否已正確設置（第 18 行）');
+      Logger.log('2. 網絡連接是否正常');
+      Logger.log('3. RapidAPI 配額是否用完');
     }
 
   } catch (error) {
@@ -1544,7 +1553,7 @@ const ZODIAC_MAPPING = {
 };
 
 /**
- * 獲取每日星座運勢（使用 Aztro API + Google 翻譯）
+ * 獲取每日星座運勢（使用 RapidAPI + Google 翻譯）
  * @param {string} zodiac - 星座名稱（繁體中文）
  * @param {Date} date - 查詢日期
  * @returns {string} 星座運勢文字
@@ -1555,14 +1564,14 @@ function getZodiacFortune(zodiac, date) {
       return '';
     }
 
-    // 先嘗試使用 Aztro API
+    // 先嘗試使用 RapidAPI Horoscope API
     const apiResult = getZodiacFortuneFromAPI(zodiac, date);
     if (apiResult) {
       return apiResult;
     }
 
     // API 失敗時，使用自建運勢系統作為備用
-    Logger.log('⚠️ Aztro API 失敗，使用自建運勢系統');
+    Logger.log('⚠️ RapidAPI 失敗或未設置，使用自建運勢系統');
     return getZodiacFortuneFallback(zodiac, date);
 
   } catch (error) {
@@ -1573,13 +1582,19 @@ function getZodiacFortune(zodiac, date) {
 }
 
 /**
- * 從 Aztro API 獲取星座運勢
+ * 從 RapidAPI Horoscope API 獲取星座運勢
  * @param {string} zodiac - 星座名稱（繁體中文）
  * @param {Date} date - 查詢日期
  * @returns {string} 星座運勢文字或空字串
  */
 function getZodiacFortuneFromAPI(zodiac, date) {
   try {
+    // 檢查 RapidAPI Key 是否已設置
+    if (!RAPIDAPI_KEY || RAPIDAPI_KEY === 'YOUR_RAPIDAPI_KEY_HERE') {
+      Logger.log('⚠️ RapidAPI Key 尚未設置，使用備用系統');
+      return '';
+    }
+
     // 轉換中文星座為英文
     const englishSign = ZODIAC_MAPPING[zodiac];
     if (!englishSign) {
@@ -1593,78 +1608,75 @@ function getZodiacFortuneFromAPI(zodiac, date) {
     const targetDate = new Date(date);
     targetDate.setHours(0, 0, 0, 0);
 
-    let day = 'today';
+    let day = 'TODAY';
     const diffDays = Math.round((targetDate - today) / (1000 * 60 * 60 * 24));
 
     if (diffDays === 0) {
-      day = 'today';
+      day = 'TODAY';
     } else if (diffDays === 1) {
-      day = 'tomorrow';
+      day = 'TOMORROW';
     } else if (diffDays === -1) {
-      day = 'yesterday';
+      day = 'YESTERDAY';
     } else {
-      // Aztro API 只支持今天、明天、昨天，其他日期使用 today
-      day = 'today';
+      // 其他日期使用 TODAY
+      day = 'TODAY';
     }
 
-    Logger.log('🌟 調用 Aztro API：' + englishSign + ' / ' + day);
+    Logger.log('🌟 調用 RapidAPI Horoscope API：' + englishSign + ' / ' + day);
 
-    // 調用 Aztro API
-    const url = `https://aztro.sameerkumar.website/?sign=${englishSign}&day=${day}`;
+    // 調用 RapidAPI Horoscope Astrology API
+    const url = `https://${RAPIDAPI_HOST}/api/v1/get-horoscope/daily?sign=${englishSign}&day=${day}`;
     const options = {
-      method: 'post',
-      muteHttpExceptions: true,
-      validateHttpsCertificates: false
+      method: 'get',
+      headers: {
+        'X-RapidAPI-Key': RAPIDAPI_KEY,
+        'X-RapidAPI-Host': RAPIDAPI_HOST
+      },
+      muteHttpExceptions: true
     };
 
     const response = UrlFetchApp.fetch(url, options);
     const statusCode = response.getResponseCode();
 
     if (statusCode !== 200) {
-      Logger.log('⚠️ Aztro API 返回錯誤：' + statusCode);
+      Logger.log('⚠️ RapidAPI 返回錯誤：' + statusCode);
+      Logger.log('回應內容：' + response.getContentText());
       return '';
     }
 
     const data = JSON.parse(response.getContentText());
 
-    // 提取運勢資訊
-    const description = data.description || '';
-    const mood = data.mood || '';
-    const color = data.color || '';
-    const luckyNumber = data.lucky_number || '';
-    const luckyTime = data.lucky_time || '';
+    // RapidAPI Horoscope API 的回應格式
+    // {
+    //   "data": {
+    //     "date": "Dec 23, 2023",
+    //     "horoscope_data": "Your daily horoscope text..."
+    //   },
+    //   "status": 200,
+    //   "success": true
+    // }
 
-    if (!description) {
-      Logger.log('⚠️ Aztro API 返回空內容');
+    const horoscopeText = data.data && data.data.horoscope_data ? data.data.horoscope_data : '';
+
+    if (!horoscopeText) {
+      Logger.log('⚠️ RapidAPI 返回空內容');
+      Logger.log('API 回應：' + JSON.stringify(data));
       return '';
     }
 
     // 使用 Google 翻譯將英文翻譯成繁體中文
-    const translatedDescription = LanguageApp.translate(description, 'en', 'zh-TW');
-    const translatedMood = mood ? LanguageApp.translate(mood, 'en', 'zh-TW') : '';
-    const translatedColor = color ? LanguageApp.translate(color, 'en', 'zh-TW') : '';
+    const translatedText = LanguageApp.translate(horoscopeText, 'en', 'zh-TW');
 
     // 組合運勢訊息
     let fortune = `\n\n✨ ${zodiac}運勢\n`;
-    fortune += `${translatedDescription}\n\n`;
+    fortune += `${translatedText}`;
 
-    if (translatedMood) {
-      fortune += `💭 今日心情：${translatedMood}\n`;
-    }
-
-    if (translatedColor && luckyNumber) {
-      fortune += `🍀 幸運色：${translatedColor} | 幸運數字：${luckyNumber}`;
-    } else if (translatedColor) {
-      fortune += `🍀 幸運色：${translatedColor}`;
-    } else if (luckyNumber) {
-      fortune += `🍀 幸運數字：${luckyNumber}`;
-    }
-
-    Logger.log('✓ Aztro API 星座運勢查詢成功：' + zodiac);
+    Logger.log('✓ RapidAPI 星座運勢查詢成功：' + zodiac);
     return fortune;
 
   } catch (error) {
-    Logger.log('❌ Aztro API 調用失敗：' + error.message);
+    Logger.log('❌ RapidAPI 調用失敗：' + error.message);
+    Logger.log('錯誤堆疊：' + error.stack);
     return '';
   }
 }
