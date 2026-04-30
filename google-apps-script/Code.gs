@@ -1053,7 +1053,13 @@ function handleCheckCoworkers(userId) {
   allEmployees.forEach(employee => {
     if (employee !== user.name) {
       const shift = getShiftForDate(employee, tomorrow);
-      if (shift && shift.includes(myShiftType)) {
+      // 只計算實際上班的人，排除各種休假
+      if (shift &&
+          shift.includes(myShiftType) &&
+          !shift.includes('休假') &&
+          !shift.includes('特休') &&
+          !shift.includes('病假') &&
+          !shift.includes('生日假')) {
         coworkers.push(`${employee} (${shift})`);
       }
     }
@@ -1822,7 +1828,13 @@ function checkFullMode(user, date) {
       allEmployees.forEach(employee => {
         if (employee !== user.name) {
           const employeeShift = getShiftForDate(employee, date);
-          if (employeeShift && employeeShift.includes(myShiftType)) {
+          // 只計算實際上班的人，排除各種休假
+          if (employeeShift &&
+              employeeShift.includes(myShiftType) &&
+              !employeeShift.includes('休假') &&
+              !employeeShift.includes('特休') &&
+              !employeeShift.includes('病假') &&
+              !employeeShift.includes('生日假')) {
             coworkers.push(`${employee} (${employeeShift})`);
           }
         }
