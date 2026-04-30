@@ -2008,12 +2008,13 @@ function sendMorningNotifications() {
         const mode = data[i][2];
         const group = data[i][3];
         const city = data[i][4] || DEFAULT_CITY; // 如果沒設定，使用預設縣市
+        const zodiac = data[i][5] || ''; // 星座（第6列，F列）
 
         if (!userId || !name) {
           continue;
         }
 
-        const user = { userId, name, mode, group, city };
+        const user = { userId, name, mode, group, city, zodiac };
 
         // 早上只通知夜班人員（不管今天是否休假）
         // 早班/中班的人在前一天晚上收到通知
@@ -2092,12 +2093,13 @@ function sendEveningNotifications() {
         const mode = data[i][2];
         const group = data[i][3];
         const city = data[i][4] || DEFAULT_CITY; // 如果沒設定，使用預設縣市
+        const zodiac = data[i][5] || ''; // 星座（第6列，F列）
 
         if (!userId || !name) {
           continue;
         }
 
-        const user = { userId, name, mode, group, city };
+        const user = { userId, name, mode, group, city, zodiac };
 
         if (mode === '簡化') {
           const message = checkSimpleMode(user, tomorrow);
