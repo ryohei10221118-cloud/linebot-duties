@@ -710,6 +710,9 @@ function handleTextMessage(event) {
   else if (message === '同步日曆' || message === '同步日历' || message === '同步行事曆') {
     replyText = handleSyncCalendar(userId);
   }
+  else if (message.includes('請假') || message.includes('请假')) {
+    replyText = handleLeaveCommand(userId, message);
+  }
   else if (message === '幫助' || message === '帮助' || message === 'help') {
     replyText = getHelpMessage();
   }
@@ -1079,7 +1082,7 @@ function handleCheckCoworkers(userId) {
   tomorrow.setDate(tomorrow.getDate() + 1);
 
   const myShift = getShiftForDate(user.name, tomorrow);
-  if (!myShift || myShift.includes('休息') || myShift.includes('休假')) {
+  if (isDayOff(myShift)) {
     return '明天你休息，沒有同班人員。';
   }
 
@@ -1265,6 +1268,10 @@ function getUserShiftType(name, date) {
  */
 function getShiftForDate(name, date) {
   try {
+    if (isOnLeave(name, date)) {
+      return '🏖️ 請假';
+    }
+
     const data = getScheduleData();
     if (!data) {
       return '';
@@ -1826,6 +1833,13 @@ function checkSimpleMode(user, date) {
 }
 
 /**
+ * O（休假）、P（特休）、BTD（生日假）、病假、請假，以及沒有班表資料，都算休假
+ */
+function isDayOff(shift) {
+  return !shift || ['休息', '休假', '特休', '病假', '生日假', '請假'].some(keyword => shift.includes(keyword));
+}
+
+/**
  * 完整模式：檢查班別
  */
 function checkFullMode(user, date) {
@@ -1834,8 +1848,8 @@ function checkFullMode(user, date) {
 
   let reply = `📅 明天 ${date.getMonth() + 1}/${date.getDate()} (${dayName})\n\n`;
 
-  if (!shift || shift.includes('休息') || shift.includes('休假')) {
-    reply += `😴 休假\n好好休息～`;
+  if (isDayOff(shift)) {
+    reply += `${shift || '😴 休假'}\n好好休息～`;
   } else {
     reply += `${shift}\n`;
 
@@ -1921,6 +1935,10 @@ function getHelpMessage() {
     `✨ 星座運勢：\n` +
     `• 設定星座後，所有查詢會顯示每日運勢\n` +
     `• 支援 12 星座\n\n` +
+    `🏖️ 請假：\n` +
+    `• 請假 9/30、明天請假 - 登記請假\n` +
+    `• 取消請假 9/30 - 取消\n` +
+    `• 請假紀錄 - 查看已登記的請假\n\n` +
     `📱 智慧鬧鐘：\n` +
     `• 同步日曆 - 將班表同步到 Google 日曆\n` +
     `• 配合 iOS 捷徑實現智慧鬧鐘\n` +
