@@ -155,25 +155,43 @@ function syncUserScheduleToCalendar(userName, daysAhead = SYNC_DAYS_AHEAD) {
 }
 
 /**
- * 同步所有用戶的班表到 Google 日曆
+ * 取得在「用戶配置」綁定且為完整模式的用戶姓名
+ */
+function getBoundFullModeUserNames() {
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_USERS);
+  const data = sheet.getDataRange().getValues();
+  const names = [];
+
+  for (let i = 1; i < data.length; i++) {
+    const userId = data[i][0];
+    const name = data[i][1];
+    const mode = data[i][2];
+    if (userId && name && mode === '完整' && !names.includes(name)) {
+      names.push(name);
+    }
+  }
+  return names;
+}
+
+/**
+ * 同步已綁定用戶的班表到 Google 日曆
  * 這個函數可以設定為每天自動執行
  */
 function syncAllUsersScheduleToCalendar() {
   Logger.log('========================================');
-  Logger.log('🔄 開始同步所有用戶班表');
+  Logger.log('🔄 開始同步已綁定用戶班表');
   Logger.log('時間：' + new Date().toLocaleString('zh-TW'));
   Logger.log('========================================');
 
   try {
-    // 取得所有員工
-    const allEmployees = getAllEmployees();
+    const allEmployees = getBoundFullModeUserNames();
 
     if (allEmployees.length === 0) {
-      Logger.log('⚠️ 沒有找到任何員工');
+      Logger.log('⚠️ 沒有找到已綁定的完整模式用戶');
       return;
     }
 
-    Logger.log('找到 ' + allEmployees.length + ' 位員工');
+    Logger.log('找到 ' + allEmployees.length + ' 位已綁定用戶：' + allEmployees.join(', '));
     Logger.log('');
 
     let successCount = 0;
