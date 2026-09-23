@@ -350,19 +350,31 @@ function findBoundUserIdByName(name) {
 }
 
 /**
- * 依捷徑傳來的明天日曆事件文字組成通知
- * 沒有事件（空字串）代表明天沒班
+ * 依捷徑傳來的明天日曆事件組成通知，並跟班表對照
+ * eventText：捷徑看到的日曆事件（空字串代表沒有事件，鬧鐘全關）
+ * sheetShift：班表上明天的班（空字串代表沒有班表資料）
  */
-function buildAlarmReportMessage(name, eventText) {
+function buildAlarmReportMessage(name, eventText, sheetShift) {
   const text = String(eventText || '').trim();
   const shiftType = ['早班', '中班', '夜班'].find(type => text.includes(type));
 
-  if (!shiftType) {
-    return '😴 明天休假\n鬧鐘已全部關閉，晚安~';
+  if (shiftType) {
+    const shiftLabel = text.split('\n')[0].replace(name + ' - ', '');
+    if (isDayOff(sheetShift)) {
+      return `⚠️ 日曆上明天是${shiftLabel}，鬧鐘已經開啟\n但班表上是${sheetShift}\n請傳「同步日曆」，再重新執行鬧鐘捷徑`;
+    }
+    return `⏰ 明天${shiftLabel}\n已經開啟鬧鐘，早點休息~`;
   }
 
-  const shiftLabel = text.split('\n')[0].replace(name + ' - ', '');
-  return `⏰ 明天${shiftLabel}\n已經開啟鬧鐘，早點休息~`;
+  if (!sheetShift) {
+    return '⚠️ 明天沒有班表資料，鬧鐘已全部關閉\n可能還沒貼新月份的班表\n貼好後請傳「同步日曆」，再重新執行鬧鐘捷徑';
+  }
+
+  if (!isDayOff(sheetShift)) {
+    return `⚠️ 班表上明天是${sheetShift}\n但日曆還沒更新，鬧鐘沒有開！\n請傳「同步日曆」，再重新執行鬧鐘捷徑`;
+  }
+
+  return '😴 明天休假\n鬧鐘已全部關閉，晚安~';
 }
 
 /**
@@ -382,7 +394,10 @@ function handleAlarmReport(data) {
   }
 
   PropertiesService.getScriptProperties().setProperty(ALARM_REPORT_PREFIX + data.name, getTodayString());
-  pushMessage(userId, buildAlarmReportMessage(data.name, data.event));
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const sheetShift = getShiftForDate(data.name, tomorrow);
+  pushMessage(userId, buildAlarmReportMessage(data.name, data.event, sheetShift));
   Logger.log('✓ 鬧鐘回報：已通知 ' + data.name);
   return ContentService.createTextOutput('ok');
 }

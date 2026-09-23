@@ -1059,7 +1059,7 @@ function handleCheckWeek(userId) {
     const shift = getShiftForDate(user.name, date);
     const dayName = ['日', '一', '二', '三', '四', '五', '六'][date.getDay()];
 
-    reply += `${date.getMonth() + 1}/${date.getDate()} (${dayName}) ${shift}\n`;
+    reply += `${date.getMonth() + 1}/${date.getDate()} (${dayName}) ${shift || '❓ 無資料'}\n`;
   }
 
   return reply;
@@ -1082,6 +1082,9 @@ function handleCheckCoworkers(userId) {
   tomorrow.setDate(tomorrow.getDate() + 1);
 
   const myShift = getShiftForDate(user.name, tomorrow);
+  if (!myShift) {
+    return '明天沒有班表資料，可能還沒貼新月份的班表。';
+  }
   if (isDayOff(myShift)) {
     return '明天你休息，沒有同班人員。';
   }
@@ -1833,10 +1836,11 @@ function checkSimpleMode(user, date) {
 }
 
 /**
- * O（休假）、P（特休）、BTD（生日假）、病假、請假，以及沒有班表資料，都算休假
+ * O（休假）、P（特休）、BTD（生日假）、病假、請假都算休假
+ * 空字串代表沒有班表資料（例如還沒貼新月份的班表），不算休假
  */
 function isDayOff(shift) {
-  return !shift || ['休息', '休假', '特休', '病假', '生日假', '請假'].some(keyword => shift.includes(keyword));
+  return Boolean(shift) && ['休息', '休假', '特休', '病假', '生日假', '請假'].some(keyword => shift.includes(keyword));
 }
 
 /**
@@ -1848,8 +1852,10 @@ function checkFullMode(user, date) {
 
   let reply = `📅 明天 ${date.getMonth() + 1}/${date.getDate()} (${dayName})\n\n`;
 
-  if (isDayOff(shift)) {
-    reply += `${shift || '😴 休假'}\n好好休息～`;
+  if (!shift) {
+    reply += `❓ 沒有班表資料\n可能還沒貼新月份的班表`;
+  } else if (isDayOff(shift)) {
+    reply += `${shift}\n好好休息～`;
   } else {
     reply += `${shift}\n`;
 
