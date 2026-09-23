@@ -358,10 +358,11 @@ function buildAlarmReportMessage(name, eventText) {
   const shiftType = ['早班', '中班', '夜班'].find(type => text.includes(type));
 
   if (!shiftType) {
-    return '😴 明天沒有班\n鬧鐘已全部關閉';
+    return '😴 明天休假\n鬧鐘已全部關閉，晚安~';
   }
 
-  return `⏰ 明天${shiftType}，已經開啟鬧鐘，早點休息~`;
+  const shiftLabel = text.split('\n')[0].replace(name + ' - ', '');
+  return `⏰ 明天${shiftLabel}，已經開啟鬧鐘，早點休息~`;
 }
 
 /**
