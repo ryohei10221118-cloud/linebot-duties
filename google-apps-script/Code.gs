@@ -18,6 +18,9 @@ const LINE_CHANNEL_ACCESS_TOKEN = 'YOUR_CHANNEL_ACCESS_TOKEN_HERE';
 const RAPIDAPI_KEY = 'YOUR_RAPIDAPI_KEY_HERE';  // 👈 在這裡填入你的 RapidAPI Key
 const RAPIDAPI_HOST = 'horoscope-astrology.p.rapidapi.com';
 
+// 👇 iOS 鬧鐘捷徑回報用的密碼（自己取一串不好猜的英數字，捷徑裡要填一樣的）
+const ALARM_REPORT_TOKEN = 'YOUR_ALARM_TOKEN_HERE';
+
 // 👇 請填入你的 Google Sheets ID（從網址複製）
 // 格式：https://docs.google.com/spreadsheets/d/【這一段】/edit
 const SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_HERE';
@@ -567,6 +570,11 @@ function doPost(e) {
     Logger.log('postData.contents: ' + e.postData.contents);
 
     const json = JSON.parse(e.postData.contents);
+
+    if (json.type === 'alarm_report') {
+      return handleAlarmReport(json);
+    }
+
     const events = json.events;
 
     Logger.log('✓ JSON 解析成功');

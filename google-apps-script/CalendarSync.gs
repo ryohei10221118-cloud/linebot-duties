@@ -328,3 +328,107 @@ function handleSyncCalendar(userId) {
     return '❌ 同步失敗：' + result.error;
   }
 }
+
+// ==================== 鬧鐘捷徑回報 ====================
+
+const ALARM_REPORT_PREFIX = 'alarm_report_';
+
+function getTodayString() {
+  return Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd');
+}
+
+function findBoundUserIdByName(name) {
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_USERS);
+  const data = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] && data[i][1] === name && data[i][2] === '完整') {
+      return data[i][0];
+    }
+  }
+  return null;
+}
+
+/**
+ * 依捷徑傳來的明天日曆事件文字組成通知
+ * 沒有事件（空字串）代表明天沒班
+ */
+function buildAlarmReportMessage(name, eventText) {
+  const text = String(eventText || '').trim();
+  const shiftType = ['早班', '中班', '夜班'].find(type => text.includes(type));
+
+  if (!shiftType) {
+    return '😴 明天沒有班\n鬧鐘已全部關閉';
+  }
+
+  const shiftLabel = text.split('\n')[0].replace(name + ' - ', '');
+  return `⏰ 明天${shiftLabel}\n已開啟${shiftType}鬧鐘，其他班別鬧鐘已關閉`;
+}
+
+/**
+ * 接收 iOS 捷徑的回報（由 doPost 轉過來）
+ * 格式：{ type: 'alarm_report', token, name, event }
+ */
+function handleAlarmReport(data) {
+  if (ALARM_REPORT_TOKEN === 'YOUR_ALARM_TOKEN_HERE' || data.token !== ALARM_REPORT_TOKEN) {
+    Logger.log('❌ 鬧鐘回報：密碼錯誤');
+    return ContentService.createTextOutput('unauthorized');
+  }
+
+  const userId = findBoundUserIdByName(data.name);
+  if (!userId) {
+    Logger.log('❌ 鬧鐘回報：找不到已綁定的完整模式用戶 ' + data.name);
+    return ContentService.createTextOutput('user not found');
+  }
+
+  PropertiesService.getScriptProperties().setProperty(ALARM_REPORT_PREFIX + data.name, getTodayString());
+  pushMessage(userId, buildAlarmReportMessage(data.name, data.event));
+  Logger.log('✓ 鬧鐘回報：已通知 ' + data.name);
+  return ContentService.createTextOutput('ok');
+}
+
+/**
+ * 每晚檢查捷徑有沒有回報，沒有就發警告
+ * 只檢查曾經回報過的人，沒用捷徑的人不會收到
+ */
+function checkAlarmReports() {
+  const props = PropertiesService.getScriptProperties();
+  const today = getTodayString();
+
+  getBoundFullModeUserNames().forEach(name => {
+    const lastReport = props.getProperty(ALARM_REPORT_PREFIX + name);
+    if (!lastReport || lastReport === today) {
+      return;
+    }
+
+    const userId = findBoundUserIdByName(name);
+    if (userId) {
+      pushMessage(userId,
+        '⚠️ 今晚鬧鐘捷徑沒有回報\n' +
+        '可能沒有執行或中途出錯\n' +
+        '請打開時鐘 App 確認明天的鬧鐘');
+      Logger.log('⚠️ ' + name + ' 今晚沒有回報，已發送警告');
+    }
+  });
+}
+
+/**
+ * 設定每晚約 21:45 檢查捷徑回報
+ * （Apps Script 的觸發時間會有前後 15 分鐘誤差，所以不會早於 21:30）
+ */
+function setupAlarmReportCheck() {
+  ScriptApp.getProjectTriggers().forEach(trigger => {
+    if (trigger.getHandlerFunction() === 'checkAlarmReports') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+
+  ScriptApp.newTrigger('checkAlarmReports')
+    .timeBased()
+    .atHour(21)
+    .nearMinute(45)
+    .everyDays(1)
+    .create();
+
+  Logger.log('✅ 已設定每晚約 21:45 檢查鬧鐘捷徑回報');
+}
