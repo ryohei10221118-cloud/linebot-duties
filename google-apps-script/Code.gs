@@ -51,11 +51,20 @@ const SUPPORTED_CITIES = [
  * @param {number} maxRetries - 最大重試次數（預設 3 次）
  * @returns {Spreadsheet|null} 試算表物件，失敗則回傳 null
  */
+// 每次執行（每則 LINE 訊息、每次排程）都是全新的全域狀態，所以快取只在同一次執行內有效，不會讀到舊班表
+let spreadsheetCache = null;
+let scheduleDataCache = null;
+
 function getSpreadsheetWithRetry(maxRetries = 3) {
+  if (spreadsheetCache) {
+    return spreadsheetCache;
+  }
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
       if (spreadsheet) {
+        spreadsheetCache = spreadsheet;
         return spreadsheet;
       }
       Logger.log('⚠️ 嘗試 ' + attempt + '/' + maxRetries + '：SpreadsheetApp.openById 回傳 null');
@@ -73,6 +82,31 @@ function getSpreadsheetWithRetry(maxRetries = 3) {
 
   Logger.log('❌ 已嘗試 ' + maxRetries + ' 次，仍無法存取試算表');
   return null;
+}
+
+/**
+ * 讀取「完整班表」的所有資料，同一次執行只讀一次
+ * @returns {Array[]|null} 讀不到時回傳 null
+ */
+function getScheduleData() {
+  if (scheduleDataCache) {
+    return scheduleDataCache;
+  }
+
+  const spreadsheet = getSpreadsheetWithRetry();
+  if (!spreadsheet) {
+    Logger.log('❌ getScheduleData: 無法存取試算表');
+    return null;
+  }
+
+  const sheet = spreadsheet.getSheetByName(SHEET_SCHEDULE);
+  if (!sheet) {
+    Logger.log('❌ getScheduleData: 找不到工作表 ' + SHEET_SCHEDULE);
+    return null;
+  }
+
+  scheduleDataCache = sheet.getDataRange().getValues();
+  return scheduleDataCache;
 }
 
 /**
@@ -1133,7 +1167,7 @@ function handleCheckMonthHolidays(userId) {
  * 獲取用戶資訊
  */
 function getUserInfo(userId) {
-  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SHEET_USERS);
+  const sheet = getSpreadsheetWithRetry().getSheetByName(SHEET_USERS);
   const data = sheet.getDataRange().getValues();
 
   for (let i = 1; i < data.length; i++) {
@@ -1175,18 +1209,8 @@ function getUserHolidays(name) {
  */
 function getUserShiftType(name, date) {
   try {
-    const spreadsheet = getSpreadsheetWithRetry();
-    if (!spreadsheet) {
-      return null;
-    }
-
-    const sheet = spreadsheet.getSheetByName(SHEET_SCHEDULE);
-    if (!sheet) {
-      return null;
-    }
-
-    const data = sheet.getDataRange().getValues();
-    if (data.length === 0) return null;
+    const data = getScheduleData();
+    if (!data || data.length === 0) return null;
 
     // 找到員工的行
     let nameRow = -1;
@@ -1241,19 +1265,10 @@ function getUserShiftType(name, date) {
  */
 function getShiftForDate(name, date) {
   try {
-    const spreadsheet = getSpreadsheetWithRetry();
-    if (!spreadsheet) {
-      Logger.log('❌ getShiftForDate: 無法存取試算表');
+    const data = getScheduleData();
+    if (!data) {
       return '';
     }
-
-    const sheet = spreadsheet.getSheetByName(SHEET_SCHEDULE);
-    if (!sheet) {
-      Logger.log('❌ getShiftForDate: 找不到工作表 ' + SHEET_SCHEDULE);
-      return '';
-    }
-
-    const data = sheet.getDataRange().getValues();
 
   if (data.length === 0) return '';
 
@@ -1375,7 +1390,7 @@ function getAllEmployees() {
       throw new Error('找不到工作表：' + SHEET_SCHEDULE);
     }
 
-    const data = sheet.getDataRange().getValues();
+    const data = getScheduleData();
 
     if (data.length === 0) return [];
 
