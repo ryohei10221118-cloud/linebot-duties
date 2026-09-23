@@ -361,8 +361,7 @@ function buildAlarmReportMessage(name, eventText) {
     return '😴 明天沒有班\n鬧鐘已全部關閉';
   }
 
-  const shiftLabel = text.split('\n')[0].replace(name + ' - ', '');
-  return `⏰ 明天${shiftLabel}\n已開啟${shiftType}鬧鐘，其他班別鬧鐘已關閉`;
+  return `⏰ 明天${shiftType}，已經開啟鬧鐘，早點休息~`;
 }
 
 /**
