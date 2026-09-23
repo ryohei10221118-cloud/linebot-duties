@@ -25,6 +25,12 @@ const ALARM_REPORT_TOKEN = 'YOUR_ALARM_TOKEN_HERE';
 // 格式：https://docs.google.com/spreadsheets/d/【這一段】/edit
 const SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_HERE';
 
+// 👇 原始班表的 Google Sheets ID（只要有檢視權限就可以）
+// 設定後會直接讀原始班表最左邊（最新）的 2 個分頁，不用再把班表複製到自己的試算表
+// 留空 '' 則讀自己試算表的「完整班表」分頁
+const SOURCE_SPREADSHEET_ID = '';
+const SOURCE_TAB_COUNT = 2;
+
 // Google Sheet 的 Tab 名稱（請勿修改，除非你改了 Sheet 的 Tab 名稱）
 const SHEET_USERS = '用戶配置';
 const SHEET_SCHEDULE = '完整班表';
@@ -53,7 +59,7 @@ const SUPPORTED_CITIES = [
  */
 // 每次執行（每則 LINE 訊息、每次排程）都是全新的全域狀態，所以快取只在同一次執行內有效，不會讀到舊班表
 let spreadsheetCache = null;
-let scheduleDataCache = null;
+let scheduleTablesCache = null;
 
 function getSpreadsheetWithRetry(maxRetries = 3) {
   if (spreadsheetCache) {
@@ -85,28 +91,66 @@ function getSpreadsheetWithRetry(maxRetries = 3) {
 }
 
 /**
- * 讀取「完整班表」的所有資料，同一次執行只讀一次
- * @returns {Array[]|null} 讀不到時回傳 null
+ * 讀取班表，同一次執行只讀一次
+ * 有設定 SOURCE_SPREADSHEET_ID 時讀原始班表最左邊的幾個分頁，否則讀自己的「完整班表」
+ * @returns {Array[][]} 每個分頁一份資料，較新的月份在前；讀不到時回傳空陣列
  */
-function getScheduleData() {
-  if (scheduleDataCache) {
-    return scheduleDataCache;
+function getScheduleTables() {
+  if (scheduleTablesCache) {
+    return scheduleTablesCache;
   }
 
-  const spreadsheet = getSpreadsheetWithRetry();
-  if (!spreadsheet) {
-    Logger.log('❌ getScheduleData: 無法存取試算表');
-    return null;
+  try {
+    if (SOURCE_SPREADSHEET_ID) {
+      scheduleTablesCache = SpreadsheetApp.openById(SOURCE_SPREADSHEET_ID)
+        .getSheets()
+        .slice(0, SOURCE_TAB_COUNT)
+        .map(sheet => sheet.getDataRange().getValues());
+    } else {
+      const spreadsheet = getSpreadsheetWithRetry();
+      const sheet = spreadsheet && spreadsheet.getSheetByName(SHEET_SCHEDULE);
+      scheduleTablesCache = sheet ? [sheet.getDataRange().getValues()] : [];
+    }
+  } catch (error) {
+    Logger.log('❌ 讀取班表失敗：' + error.message);
+    return [];
   }
 
-  const sheet = spreadsheet.getSheetByName(SHEET_SCHEDULE);
-  if (!sheet) {
-    Logger.log('❌ getScheduleData: 找不到工作表 ' + SHEET_SCHEDULE);
-    return null;
-  }
+  return scheduleTablesCache;
+}
 
-  scheduleDataCache = sheet.getDataRange().getValues();
-  return scheduleDataCache;
+/**
+ * 在第一列找日期所在的欄（從 C 欄開始），找不到回傳 -1
+ */
+function findDateColumn(table, date) {
+  const headers = table[0] || [];
+  for (let col = 2; col < headers.length; col++) {
+    const cellValue = headers[col];
+    if (cellValue instanceof Date) {
+      if (cellValue.getMonth() === date.getMonth() && cellValue.getDate() === date.getDate()) {
+        return col;
+      }
+    } else if (cellValue && typeof cellValue === 'string') {
+      const match = cellValue.match(/^(\d{1,2})\/(\d{1,2})$/);
+      if (match && parseInt(match[1], 10) === date.getMonth() + 1 && parseInt(match[2], 10) === date.getDate()) {
+        return col;
+      }
+    }
+  }
+  return -1;
+}
+
+/**
+ * 在 B 欄找員工姓名所在的列（從第 3 列開始），找不到回傳 -1
+ */
+function findNameRow(table, name) {
+  for (let row = 2; row < table.length; row++) {
+    const cellName = table[row][1];
+    if (cellName && cellName.toString().trim() === name) {
+      return row;
+    }
+  }
+  return -1;
 }
 
 /**
@@ -1215,20 +1259,13 @@ function getUserHolidays(name) {
  */
 function getUserShiftType(name, date) {
   try {
-    const data = getScheduleData();
-    if (!data || data.length === 0) return null;
+    // 優先用這個日期所在月份的分頁，月初換班別時才會判斷正確
+    const tables = getScheduleTables();
+    const data = tables.find(table => findDateColumn(table, date) !== -1 && findNameRow(table, name) !== -1)
+      || tables.find(table => findNameRow(table, name) !== -1);
+    if (!data) return null;
 
-    // 找到員工的行
-    let nameRow = -1;
-    for (let row = 2; row < data.length; row++) {
-      const cellName = data[row][1];
-      if (cellName && cellName.toString().trim() === name) {
-        nameRow = row;
-        break;
-      }
-    }
-
-    if (nameRow === -1) return null;
+    const nameRow = findNameRow(data, name);
 
     // 檢查本月所有日期的班別（取前後15天的範圍）
     const nightShiftCount = 0;
@@ -1275,74 +1312,22 @@ function getShiftForDate(name, date) {
       return '🏖️ 請假';
     }
 
-    const data = getScheduleData();
-    if (!data) {
-      return '';
+    // 分頁由新到舊，找第一個同時有這個日期和這個人的分頁
+    for (const data of getScheduleTables()) {
+      const dateCol = findDateColumn(data, date);
+      if (dateCol === -1) continue;
+
+      const nameRow = findNameRow(data, name);
+      if (nameRow === -1) continue;
+
+      const shift = data[nameRow][dateCol];
+      const classified = shift ? classifyShift(shift) : '';
+      Logger.log('📅 ' + name + ' ' + (date.getMonth() + 1) + '/' + date.getDate() + '：原始=' + shift + ', 分類=' + classified);
+      return classified;
     }
 
-  if (data.length === 0) return '';
-
-  // 1. 從第一行找到日期對應的列
-  const headers = data[0];  // 第一行是日期
-  let dateCol = -1;
-
-  const targetMonth = date.getMonth();  // 0-11
-  const targetDate = date.getDate();    // 1-31
-
-  Logger.log('🔍 尋找日期：' + (targetMonth + 1) + '/' + targetDate);
-
-  for (let col = 2; col < headers.length; col++) {  // 從 C 列開始（index 2）
-    const cellValue = headers[col];
-
-    // 檢查是否為 Date 物件
-    if (cellValue instanceof Date) {
-      if (cellValue.getMonth() === targetMonth && cellValue.getDate() === targetDate) {
-        Logger.log('✓ 找到日期在列 ' + col + ' (Date 物件)');
-        dateCol = col;
-        break;
-      }
-    }
-    // 也檢查字串格式的日期（例如 "11/10" 或 "11/9"）
-    else if (cellValue && typeof cellValue === 'string') {
-      const dateMatch = cellValue.match(/^(\d{1,2})\/(\d{1,2})$/);
-      if (dateMatch) {
-        const month = parseInt(dateMatch[1]);
-        const day = parseInt(dateMatch[2]);
-        if (month === targetMonth + 1 && day === targetDate) {
-          Logger.log('✓ 找到日期在列 ' + col + ' (字串格式: ' + cellValue + ')');
-          dateCol = col;
-          break;
-        }
-      }
-    }
-  }
-
-  if (dateCol === -1) {
-    Logger.log('❌ 找不到日期列');
+    Logger.log('❌ 班表裡找不到 ' + name + ' 在 ' + (date.getMonth() + 1) + '/' + date.getDate() + ' 的資料');
     return '';
-  }
-
-  // 2. 從 B 列找到員工姓名對應的行
-  let nameRow = -1;
-  for (let row = 2; row < data.length; row++) {  // 從第 3 行開始（跳過標題）
-    const cellName = data[row][1];  // B 列（index 1）
-    if (cellName && cellName.toString().trim() === name) {
-      Logger.log('✓ 找到員工 ' + name + ' 在第 ' + (row + 1) + ' 行');
-      nameRow = row;
-      break;
-    }
-  }
-
-  if (nameRow === -1) {
-    Logger.log('❌ 找不到員工：' + name);
-    return '';
-  }
-
-    // 3. 返回該員工在該日期的班別
-    const shift = data[nameRow][dateCol];
-    const classified = shift ? classifyShift(shift) : '';
-    Logger.log('📅 ' + name + ' 的班別：原始=' + shift + ', 分類=' + classified);
-    return classified;
   } catch (error) {
     Logger.log('❌ getShiftForDate 發生錯誤：' + error.message);
     return '';
@@ -1387,45 +1372,34 @@ function getAllEmployees() {
   }
 
   try {
-    const spreadsheet = getSpreadsheetWithRetry();
-    if (!spreadsheet) {
-      Logger.log('❌ 錯誤：無法存取試算表（已重試 3 次）');
-      throw new Error('無法存取試算表');
+    const tables = getScheduleTables();
+    if (tables.length === 0) {
+      throw new Error('讀不到班表，請確認 SOURCE_SPREADSHEET_ID 或「' + SHEET_SCHEDULE + '」分頁');
     }
-
-    const sheet = spreadsheet.getSheetByName(SHEET_SCHEDULE);
-    if (!sheet) {
-      Logger.log('❌ 錯誤：找不到工作表 "' + SHEET_SCHEDULE + '"');
-      Logger.log('請確認你的 Google Sheets 中有一個名為 "完整班表" 的工作表');
-      throw new Error('找不到工作表：' + SHEET_SCHEDULE);
-    }
-
-    const data = getScheduleData();
-
-    if (data.length === 0) return [];
 
     const employees = [];
 
-    // 員工姓名在 B 列（index 1），從第 3 行開始（跳過前兩行的標題）
-    for (let row = 2; row < data.length; row++) {
-      const name = data[row][1];  // B 列（第二列，index 1）
+    // 員工姓名在 B 列（index 1），從第 3 行開始（跳過前兩行的標題）；兩個月份的名單合併
+    tables.forEach(data => {
+      for (let row = 2; row < data.length; row++) {
+        const name = data[row][1];
 
-      // 只收集非空的值，且排除可能的標題文字
-      if (name &&
-          typeof name === 'string' &&
-          name.trim() !== '' &&
-          name !== 'Long Holiday' &&
-          name !== 'Head' &&
-          !name.includes('限休人數') &&
-          !name.includes('已休人數')) {
+        // 只收集非空的值，且排除可能的標題文字
+        if (name &&
+            typeof name === 'string' &&
+            name.trim() !== '' &&
+            name !== 'Long Holiday' &&
+            name !== 'Head' &&
+            !name.includes('限休人數') &&
+            !name.includes('已休人數')) {
 
-        const trimmedName = name.trim();
-        // 避免重複添加
-        if (!employees.includes(trimmedName)) {
-          employees.push(trimmedName);
+          const trimmedName = name.trim();
+          if (!employees.includes(trimmedName)) {
+            employees.push(trimmedName);
+          }
         }
       }
-    }
+    });
 
     return employees;
   } catch (error) {
