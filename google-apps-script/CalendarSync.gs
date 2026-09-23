@@ -362,7 +362,7 @@ function buildAlarmReportMessage(name, eventText) {
   }
 
   const shiftLabel = text.split('\n')[0].replace(name + ' - ', '');
-  return `⏰ 明天${shiftLabel}，已經開啟鬧鐘，早點休息~`;
+  return `⏰ 明天${shiftLabel}\n已經開啟鬧鐘，早點休息~`;
 }
 
 /**
