@@ -665,6 +665,9 @@ function handleTextMessage(event) {
   else if (message === '本月休假日') {
     replyText = handleCheckMonthHolidays(userId);
   }
+  else if (message === '同步日曆' || message === '同步日历' || message === '同步行事曆') {
+    replyText = handleSyncCalendar(userId);
+  }
   else if (message === '幫助' || message === '帮助' || message === 'help') {
     replyText = getHelpMessage();
   }
@@ -1895,6 +1898,10 @@ function getHelpMessage() {
     `✨ 星座運勢：\n` +
     `• 設定星座後，所有查詢會顯示每日運勢\n` +
     `• 支援 12 星座\n\n` +
+    `📱 智慧鬧鐘：\n` +
+    `• 同步日曆 - 將班表同步到 Google 日曆\n` +
+    `• 配合 iOS 捷徑實現智慧鬧鐘\n` +
+    `• 休假日自動不響鈴\n\n` +
     `💡 提示：命令中的空格可有可無`;
 }
 
