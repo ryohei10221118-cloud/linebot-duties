@@ -377,9 +377,13 @@ function buildAlarmReportMessage(name, eventText, sheetShift) {
   return '😴 明天休假\n鬧鐘已全部關閉，晚安~';
 }
 
+const PENDING_ALARM_REPORTS_KEY = 'pending_alarm_reports';
+
 /**
  * 接收 iOS 捷徑的回報（由 doPost 轉過來）
  * 格式：{ type: 'alarm_report', token, name, event }
+ * 查班表、傳 LINE 要好幾秒，捷徑會等到 iPhone 提示「執行時間過長」，
+ * 所以這裡只記下回報就立刻回應，其餘交給背景排程 processPendingAlarmReports（約 1 分鐘後）
  */
 function handleAlarmReport(data) {
   if (ALARM_REPORT_TOKEN === 'YOUR_ALARM_TOKEN_HERE' || data.token !== ALARM_REPORT_TOKEN) {
@@ -387,19 +391,66 @@ function handleAlarmReport(data) {
     return ContentService.createTextOutput('unauthorized');
   }
 
-  const userId = findBoundUserIdByName(data.name);
-  if (!userId) {
-    Logger.log('❌ 鬧鐘回報：找不到已綁定的完整模式用戶 ' + data.name);
-    return ContentService.createTextOutput('user not found');
-  }
-
-  PropertiesService.getScriptProperties().setProperty(ALARM_REPORT_PREFIX + data.name, getTodayString());
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
-  const sheetShift = getShiftForDate(data.name, tomorrow);
-  pushMessage(userId, buildAlarmReportMessage(data.name, data.event, sheetShift));
-  Logger.log('✓ 鬧鐘回報：已通知 ' + data.name);
+
+  const props = PropertiesService.getScriptProperties();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(5000);
+  try {
+    props.setProperty(ALARM_REPORT_PREFIX + data.name, getTodayString());
+    const pending = JSON.parse(props.getProperty(PENDING_ALARM_REPORTS_KEY) || '[]');
+    // 記下回報當下的「明天」，背景排程如果拖過半夜才跑也不會算錯日期
+    pending.push({ name: data.name, event: data.event || '', targetTime: tomorrow.getTime() });
+    props.setProperty(PENDING_ALARM_REPORTS_KEY, JSON.stringify(pending));
+  } finally {
+    lock.releaseLock();
+  }
+
+  ScriptApp.newTrigger('processPendingAlarmReports')
+    .timeBased()
+    .after(1000)
+    .create();
+
+  Logger.log('✓ 鬧鐘回報：已記錄 ' + data.name + '，稍後通知');
   return ContentService.createTextOutput('ok');
+}
+
+/**
+ * 背景處理鬧鐘回報：跟班表對照後傳 LINE（由 handleAlarmReport 建立的一次性排程執行）
+ */
+function processPendingAlarmReports() {
+  ScriptApp.getProjectTriggers().forEach(trigger => {
+    if (trigger.getHandlerFunction() === 'processPendingAlarmReports') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+
+  const props = PropertiesService.getScriptProperties();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  let pending;
+  try {
+    pending = JSON.parse(props.getProperty(PENDING_ALARM_REPORTS_KEY) || '[]');
+    props.deleteProperty(PENDING_ALARM_REPORTS_KEY);
+  } finally {
+    lock.releaseLock();
+  }
+
+  pending.forEach(report => {
+    try {
+      const userId = findBoundUserIdByName(report.name);
+      if (!userId) {
+        Logger.log('❌ 鬧鐘回報：找不到已綁定的完整模式用戶 ' + report.name);
+        return;
+      }
+      const sheetShift = getShiftForDate(report.name, new Date(report.targetTime));
+      pushMessage(userId, buildAlarmReportMessage(report.name, report.event, sheetShift));
+      Logger.log('✓ 鬧鐘回報：已通知 ' + report.name);
+    } catch (error) {
+      Logger.log('❌ 鬧鐘回報：通知 ' + report.name + ' 失敗 ' + error.message);
+    }
+  });
 }
 
 /**
