@@ -428,8 +428,8 @@ function checkAlarmReports() {
 }
 
 /**
- * 設定每晚約 21:00 檢查捷徑回報
- * （Apps Script 的觸發時間會有前後 15 分鐘誤差，實際在 20:45～21:15，捷徑要在 20:30 前後執行）
+ * 設定每晚約 22:30 檢查捷徑回報
+ * （Apps Script 的觸發時間會有前後 15 分鐘誤差，實際在 22:15～22:45，捷徑要在 22:00 執行）
  */
 function setupAlarmReportCheck() {
   ScriptApp.getProjectTriggers().forEach(trigger => {
@@ -440,10 +440,10 @@ function setupAlarmReportCheck() {
 
   ScriptApp.newTrigger('checkAlarmReports')
     .timeBased()
-    .atHour(21)
-    .nearMinute(0)
+    .atHour(22)
+    .nearMinute(30)
     .everyDays(1)
     .create();
 
-  Logger.log('✅ 已設定每晚約 21:00 檢查鬧鐘捷徑回報');
+  Logger.log('✅ 已設定每晚約 22:30 檢查鬧鐘捷徑回報');
 }
