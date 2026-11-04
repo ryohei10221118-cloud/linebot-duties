@@ -349,21 +349,52 @@ function findBoundUserIdByName(name) {
   return null;
 }
 
+const SHIFT_ALARM_LABELS = ['早班', '中班', '夜班'];
+
 /**
- * 依捷徑傳來的明天日曆事件組成通知，並跟班表對照
+ * 計算捷徑回報的「已開啟鬧鐘標籤」裡，各班別各有幾個
+ */
+function countShiftAlarms(alarmsText) {
+  const text = String(alarmsText);
+  const counts = {};
+  SHIFT_ALARM_LABELS.forEach(type => {
+    counts[type] = text.split(type).length - 1;
+  });
+  return counts;
+}
+
+/**
+ * 依捷徑傳來的明天日曆事件組成通知，並跟班表、實際開著的鬧鐘對照
  * eventText：捷徑看到的日曆事件（空字串代表沒有事件，鬧鐘全關）
  * sheetShift：班表上明天的班（空字串代表沒有班表資料）
+ * alarmsText：捷徑跑完後實際開著的鬧鐘標籤；舊版捷徑沒有傳時為 undefined，就不檢查
  */
-function buildAlarmReportMessage(name, eventText, sheetShift) {
+function buildAlarmReportMessage(name, eventText, sheetShift, alarmsText) {
   const text = String(eventText || '').trim();
-  const shiftType = ['早班', '中班', '夜班'].find(type => text.includes(type));
+  const shiftType = SHIFT_ALARM_LABELS.find(type => text.includes(type));
+  const counts = alarmsText === undefined ? null : countShiftAlarms(alarmsText);
+  const strayNote = counts
+    ? SHIFT_ALARM_LABELS
+        .filter(type => type !== shiftType && counts[type] > 0)
+        .map(type => `${counts[type]} 個${type}鬧鐘`)
+        .join('、')
+    : '';
 
   if (shiftType) {
     const shiftLabel = text.split('\n')[0].replace(name + ' - ', '');
+    if (counts && counts[shiftType] === 0) {
+      return `🚨 明天${shiftLabel}，但${shiftType}鬧鐘沒有開成功！\n請打開時鐘 App 手動開啟，再檢查捷徑`;
+    }
     if (isDayOff(sheetShift)) {
       return `⚠️ 日曆上明天是${shiftLabel}，鬧鐘已經開啟\n但班表上是${sheetShift}\n請傳「同步日曆」，再重新執行鬧鐘捷徑`;
     }
-    return `⏰ 明天${shiftLabel}\n已經開啟鬧鐘，早點休息~`;
+    let message = counts
+      ? `⏰ 明天${shiftLabel}\n已經開啟 ${counts[shiftType]} 個鬧鐘，早點休息~`
+      : `⏰ 明天${shiftLabel}\n已經開啟鬧鐘，早點休息~`;
+    if (strayNote) {
+      message += `\n⚠️ 另外還有 ${strayNote}開著，請檢查`;
+    }
+    return message;
   }
 
   if (!sheetShift) {
@@ -374,6 +405,10 @@ function buildAlarmReportMessage(name, eventText, sheetShift) {
     return `⚠️ 班表上明天是${sheetShift}\n但日曆還沒更新，鬧鐘沒有開！\n請傳「同步日曆」，再重新執行鬧鐘捷徑`;
   }
 
+  if (strayNote) {
+    return `⚠️ 明天休假，但還有 ${strayNote}開著\n請打開時鐘 App 關掉`;
+  }
+
   return '😴 明天休假\n鬧鐘已全部關閉，晚安~';
 }
 
@@ -381,7 +416,8 @@ const PENDING_ALARM_REPORTS_KEY = 'pending_alarm_reports';
 
 /**
  * 接收 iOS 捷徑的回報（由 doPost 轉過來）
- * 格式：{ type: 'alarm_report', token, name, event }
+ * 格式：{ type: 'alarm_report', token, name, event, alarms }
+ * alarms：捷徑跑完後實際開著的鬧鐘標籤（可省略）
  * 查班表、傳 LINE 要好幾秒，捷徑會等到 iPhone 提示「執行時間過長」，
  * 所以這裡只記下回報就立刻回應，其餘交給背景排程 processPendingAlarmReports（約 1 分鐘後）
  */
@@ -401,7 +437,7 @@ function handleAlarmReport(data) {
     props.setProperty(ALARM_REPORT_PREFIX + data.name, getTodayString());
     const pending = JSON.parse(props.getProperty(PENDING_ALARM_REPORTS_KEY) || '[]');
     // 記下回報當下的「明天」，背景排程如果拖過半夜才跑也不會算錯日期
-    pending.push({ name: data.name, event: data.event || '', targetTime: tomorrow.getTime() });
+    pending.push({ name: data.name, event: data.event || '', alarms: data.alarms, targetTime: tomorrow.getTime() });
     props.setProperty(PENDING_ALARM_REPORTS_KEY, JSON.stringify(pending));
   } finally {
     lock.releaseLock();
@@ -445,7 +481,7 @@ function processPendingAlarmReports() {
         return;
       }
       const sheetShift = getShiftForDate(report.name, new Date(report.targetTime));
-      pushMessage(userId, buildAlarmReportMessage(report.name, report.event, sheetShift));
+      pushMessage(userId, buildAlarmReportMessage(report.name, report.event, sheetShift, report.alarms));
       Logger.log('✓ 鬧鐘回報：已通知 ' + report.name);
     } catch (error) {
       Logger.log('❌ 鬧鐘回報：通知 ' + report.name + ' 失敗 ' + error.message);
